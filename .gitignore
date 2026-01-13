@@ -15,6 +15,7 @@ src-tauri/target/
 # OS
 .DS_Store
 Thumbs.db
+nul
 
 # Environment
 .env
@@ -29,6 +30,18 @@ src-tauri/models/
 
 # ONNX Runtime (downloaded separately)
 ort-runtime/
+onnxruntime-temp/
+onnxruntime*.zip
+
+# Local Cargo config
+.cargo/
+
+# Personal/scratch files
+my_scratch.md
+*.scratch.md
+
+# Claude Code
+.claude/
 
 # Lock files (optional - keep if you want reproducible builds)
 # pnpm-lock.yaml
