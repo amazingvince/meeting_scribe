@@ -242,8 +242,8 @@ impl LlmModel {
                 id: "qwen3-1.7b-q4_k_m".to_string(),
                 name: "Qwen3 1.7B (Q4_K_M)".to_string(),
                 model_type: ModelType::LLM,
-                size_bytes: 1_000_000_000, // ~1.0GB
-                download_url: "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/qwen3-1.7b-q4_k_m.gguf".to_string(),
+                size_bytes: 1_110_000_000, // ~1.11GB
+                download_url: "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf".to_string(),
                 description: "Qwen3 1.7B quantized to Q4_K_M. Lightweight and fast, good for limited hardware.".to_string(),
                 is_archive: false,
                 archive_format: None,
@@ -267,7 +267,7 @@ impl LlmModel {
     pub fn filename(&self) -> &'static str {
         match self {
             LlmModel::Qwen3_4B => "qwen3-4b-q4_k_m.gguf",
-            LlmModel::Qwen3_1_7B => "qwen3-1.7b-q4_k_m.gguf",
+            LlmModel::Qwen3_1_7B => "Qwen3-1.7B-Q4_K_M.gguf",
             LlmModel::Qwen3_8B => "qwen3-8b-q4_k_m.gguf",
         }
     }
@@ -276,7 +276,7 @@ impl LlmModel {
     pub fn download_url(&self) -> &'static str {
         match self {
             LlmModel::Qwen3_4B => "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/qwen3-4b-q4_k_m.gguf",
-            LlmModel::Qwen3_1_7B => "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/qwen3-1.7b-q4_k_m.gguf",
+            LlmModel::Qwen3_1_7B => "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
             LlmModel::Qwen3_8B => "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/qwen3-8b-q4_k_m.gguf",
         }
     }
@@ -285,7 +285,7 @@ impl LlmModel {
     pub fn size_bytes(&self) -> u64 {
         match self {
             LlmModel::Qwen3_4B => 2_500_000_000,
-            LlmModel::Qwen3_1_7B => 1_000_000_000,
+            LlmModel::Qwen3_1_7B => 1_110_000_000, // ~1.11GB
             LlmModel::Qwen3_8B => 4_900_000_000,
         }
     }

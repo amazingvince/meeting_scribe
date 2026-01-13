@@ -63,7 +63,8 @@ transcribe-rs = { git = "https://github.com/cjpais/transcribe-rs", features = ["
 # EMBEDDINGS
 # ============================================
 # Note: ort is already defined in VAD section with load-dynamic feature
-tokenizers = "0.19"              # HuggingFace tokenizers for embedding models
+# Disable esaxx_fast to avoid C++ runtime mismatch with llama-cpp-sys-2
+tokenizers = { version = "0.19", default-features = false, features = ["onig", "progressbar"] }
 ndarray = "0.16"                 # N-dimensional arrays for tensor operations
 num_cpus = "1.16"                # CPU count for ONNX thread configuration
 
@@ -76,10 +77,12 @@ llama-cpp-2 = "0.1"
 # STORAGE
 # ============================================
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
-# LanceDB - disable default features to avoid aws-lc-sys which requires cmake
-lancedb = { version = "0.15", default-features = false }
-arrow-array = "53"
-arrow-schema = "53"
+# LanceDB - disable all cloud features to avoid aws-lc-sys build issues
+# Using local-only mode (no aws, gcs, azure, dynamodb, oss)
+lancedb = { version = "0.23", default-features = false }
+# Arrow version must match lancedb's requirements
+arrow-array = "56"
+arrow-schema = "56"
 futures-util = "0.3"
 
 # ============================================
@@ -93,7 +96,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 parking_lot = "0.12"
 dirs = "5"
-reqwest = { version = "0.12", features = ["stream", "json"] }
+# Use native-tls to avoid aws-lc-sys build issues
+reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "native-tls"] }
 
 # ============================================
 # ARCHIVE EXTRACTION
@@ -139,3 +143,4 @@ opt-level = 1                    # Some optimization in dev for audio
 lto = true
 codegen-units = 1
 strip = true
+
