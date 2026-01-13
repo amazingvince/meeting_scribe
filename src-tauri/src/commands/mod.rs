@@ -26,9 +26,10 @@ pub use transcription::{
 // Re-export storage commands
 pub use storage::{
     count_meetings, create_meeting, delete_meeting, delete_transcript, get_database_stats,
-    get_meeting, get_storage_stats, get_transcript, get_transcript_text, list_meetings,
-    save_transcript, search_in_meeting, search_transcripts, search_transcripts_with_snippets,
-    update_meeting, update_meeting_status, SharedStorageState,
+    get_meeting, get_note, get_notes, get_storage_stats, get_summaries, get_summary,
+    get_transcript, get_transcript_text, list_meetings, save_note, save_summary, save_transcript,
+    search_in_meeting, search_transcripts, search_transcripts_with_snippets, update_meeting,
+    update_meeting_status, SharedStorageState,
 };
 
 // Re-export embedding commands

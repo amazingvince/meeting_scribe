@@ -4,7 +4,7 @@
 
 use crate::inference::llm::{GenerationConfig, LlmService};
 use crate::inference::summarization::{ActionItem, SummarizationService};
-use crate::models::{download_llm_model, is_llm_downloaded, LlmDownloadProgress, LlmModel};
+use crate::models::{delete_llm_model, download_llm_model, is_llm_downloaded, LlmModel};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::sync::Arc;
@@ -148,6 +148,32 @@ pub async fn download_llm(
     Ok(())
 }
 
+/// Delete an LLM model (auto-unloads if currently loaded)
+#[tauri::command]
+pub async fn delete_llm(
+    config: tauri::State<'_, crate::AppConfig>,
+    llm: tauri::State<'_, SharedLlmService>,
+    model: LlmModel,
+) -> Result<(), String> {
+    // Auto-unload if this model is currently loaded
+    {
+        let mut service = llm.lock();
+        if service.is_loaded() && service.current_model() == Some(model) {
+            info!("Unloading model before deletion: {}", model);
+            service.unload_model();
+        }
+    }
+
+    // Delete the model files
+    info!("Deleting LLM model: {}", model);
+    delete_llm_model(model, &config.models_dir)
+        .await
+        .map_err(|e| format!("Failed to delete model: {}", e))?;
+
+    info!("LLM model {} deleted successfully", model);
+    Ok(())
+}
+
 /// List available LLM models with their status
 #[tauri::command]
 pub fn list_llm_models(
@@ -240,7 +266,7 @@ pub fn generate_meeting_title(
         let repos = storage.repositories();
         let segments = repos
             .transcripts
-            .get_by_meeting(&meeting_id, None)
+            .get_by_meeting(&meeting_id)
             .map_err(|e| format!("Failed to get transcript: {}", e))?;
 
         // Get first ~2000 chars
@@ -269,9 +295,16 @@ pub fn generate_meeting_title(
     {
         let storage = storage.lock();
         let repos = storage.repositories();
+        let mut meeting = repos
+            .meetings
+            .get(&meeting_id)
+            .map_err(|e| format!("Failed to get meeting: {}", e))?
+            .ok_or_else(|| format!("Meeting not found: {}", meeting_id))?;
+        meeting.title = title.clone();
+        meeting.updated_at = chrono::Utc::now().timestamp_millis();
         repos
             .meetings
-            .update(&meeting_id, Some(&title), None)
+            .update(&meeting)
             .map_err(|e| format!("Failed to update meeting title: {}", e))?;
     }
 

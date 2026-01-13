@@ -339,6 +339,8 @@ pub struct StorageStats {
     pub vectors_bytes: u64,
     /// Audio files size in bytes
     pub audio_bytes: u64,
+    /// ML models size in bytes
+    pub models_bytes: u64,
     /// Total storage used
     pub total_bytes: u64,
 }

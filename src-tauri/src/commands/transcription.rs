@@ -11,6 +11,9 @@ use crate::inference::{
     ProcessingResult, TranscriptionConfig, TranscriptionService, TranscriptSegment,
 };
 use crate::models::{DownloadProgress, ModelManager, ModelStatus, TranscriptionBackend};
+use crate::storage::StoredSegment;
+
+use super::storage::SharedStorageState;
 
 /// Shared transcription service type
 pub type SharedTranscriptionService = Arc<TranscriptionService>;
@@ -204,6 +207,7 @@ pub fn transcribe_file(
 pub fn process_meeting(
     app: AppHandle,
     transcription: tauri::State<'_, SharedTranscriptionService>,
+    storage: tauri::State<'_, SharedStorageState>,
     meeting_id: String,
     mic_path: Option<String>,
     system_path: Option<String>,
@@ -302,6 +306,25 @@ pub fn process_meeting(
     let formatted_text = format_transcript(&transcript);
     let stats = TranscriptStats::from_segments(&transcript);
 
+    // Save transcript to database
+    {
+        let storage = storage.lock();
+        let repos = storage.repositories();
+        let stored_segments: Vec<StoredSegment> = transcript
+            .iter()
+            .map(|s| StoredSegment::from_inference(s, &meeting_id))
+            .collect();
+        repos
+            .transcripts
+            .insert_batch(&stored_segments)
+            .map_err(|e| e.to_string())?;
+        info!(
+            "Saved {} transcript segments for meeting {}",
+            stored_segments.len(),
+            meeting_id
+        );
+    }
+
     // Calculate speech ratio
     let speech_time: u64 = transcript.iter().map(|s| s.duration_ms()).sum();
     let speech_ratio = if total_duration_ms > 0 {
@@ -366,4 +389,41 @@ pub fn is_model_downloaded(
 ) -> bool {
     let manager = model_manager.lock();
     manager.is_model_downloaded(backend)
+}
+
+/// Delete a transcription model (auto-unloads if currently loaded)
+#[tauri::command]
+pub fn delete_transcription_model(
+    transcription: tauri::State<'_, SharedTranscriptionService>,
+    model_manager: tauri::State<'_, SharedModelManager>,
+    backend: TranscriptionBackend,
+) -> Result<(), String> {
+    // Auto-unload if this backend is currently loaded
+    if transcription.is_ready() && transcription.backend() == backend {
+        info!("Unloading transcription model before deletion: {:?}", backend);
+        transcription.unload();
+    }
+
+    // Get the model path
+    let model_path = {
+        let manager = model_manager.lock();
+        manager.get_model_path(backend)
+    };
+
+    // Delete the model directory
+    if model_path.exists() {
+        info!("Deleting transcription model at {:?}", model_path);
+        std::fs::remove_dir_all(&model_path)
+            .map_err(|e| format!("Failed to delete model: {}", e))?;
+    }
+
+    // Update status in model manager
+    {
+        let manager = model_manager.lock();
+        let model_id = backend.model_info().id;
+        manager.set_status(&model_id, ModelStatus::NotDownloaded);
+    }
+
+    info!("Transcription model {:?} deleted successfully", backend);
+    Ok(())
 }

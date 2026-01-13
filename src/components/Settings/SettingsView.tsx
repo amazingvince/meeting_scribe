@@ -1,46 +1,81 @@
-import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+/**
+ * Settings view with model management, audio settings, and storage stats
+ */
 
-interface AppInfo {
-  version: string;
-  data_dir: string;
-  platform: string;
-}
+import { useState, useEffect } from 'react';
+import { Info } from 'lucide-react';
+import { Card, CardTitle } from '../ui/Card';
+import { ModelSettings } from './ModelSettings';
+import { StorageSettings } from './StorageSettings';
+import * as api from '../../lib/tauri';
+import type { AppInfo } from '../../lib/tauri';
 
 export function SettingsView() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
 
   useEffect(() => {
-    invoke<AppInfo>('get_app_info').then(setAppInfo);
+    api.getAppInfo().then(setAppInfo);
   }, []);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Settings</h1>
+    <div className="space-y-6 pb-8">
+      <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+        Settings
+      </h1>
 
-      {appInfo && (
-        <div className="card p-6 space-y-4">
-          <h2 className="font-semibold">Application Info</h2>
+      {/* Model Settings */}
+      <section>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+          Models
+        </h2>
+        <ModelSettings />
+      </section>
 
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div className="text-gray-500">Version</div>
-            <div>{appInfo.version}</div>
+      {/* Storage */}
+      <section>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+          Storage
+        </h2>
+        <StorageSettings />
+      </section>
 
-            <div className="text-gray-500">Platform</div>
-            <div>{appInfo.platform}</div>
-
-            <div className="text-gray-500">Data Directory</div>
-            <div className="font-mono text-xs break-all">{appInfo.data_dir}</div>
+      {/* App Info */}
+      <section>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+          About
+        </h2>
+        <Card>
+          <div className="flex items-center gap-2 mb-4">
+            <Info className="w-5 h-5 text-gray-500" />
+            <CardTitle>Application Info</CardTitle>
           </div>
-        </div>
-      )}
 
-      <div className="card p-6">
-        <h2 className="font-semibold mb-4">Models</h2>
-        <p className="text-gray-500 text-sm">
-          Model management will be added in <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">04-transcription-engine.md</code>
-        </p>
-      </div>
+          {appInfo && (
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400">Version</span>
+                <span className="text-gray-900 dark:text-gray-100">
+                  {appInfo.version}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400">Platform</span>
+                <span className="text-gray-900 dark:text-gray-100">
+                  {appInfo.platform}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400">
+                  Data Directory
+                </span>
+                <span className="text-gray-900 dark:text-gray-100 font-mono text-xs truncate max-w-[250px]">
+                  {appInfo.data_dir}
+                </span>
+              </div>
+            </div>
+          )}
+        </Card>
+      </section>
     </div>
   );
 }

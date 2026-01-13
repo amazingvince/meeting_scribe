@@ -8,8 +8,8 @@ use tracing::info;
 
 use crate::inference::TranscriptSegment;
 use crate::storage::{
-    DatabaseStats, ListOptions, Meeting, MeetingStatus, SearchHit, SearchHitWithSnippet,
-    StorageStats, StoredSegment,
+    DatabaseStats, ListOptions, Meeting, MeetingStatus, Note, SearchHit, SearchHitWithSnippet,
+    StorageStats, StoredSegment, Summary, SummaryType,
 };
 
 /// Shared storage state type
@@ -37,6 +37,21 @@ pub fn create_meeting(
     repos.meetings.create(&meeting).map_err(|e| e.to_string())?;
 
     info!("Created meeting: {} ({})", meeting.title, meeting.id);
+    Ok(meeting)
+}
+
+/// Create a meeting with a specific ID (used after recording)
+#[tauri::command]
+pub fn create_meeting_with_id(
+    storage: tauri::State<'_, SharedStorageState>,
+    meeting: Meeting,
+) -> Result<Meeting, String> {
+    let storage = storage.lock();
+    let repos = storage.repositories();
+
+    repos.meetings.create(&meeting).map_err(|e| e.to_string())?;
+
+    info!("Created meeting with ID: {} ({})", meeting.title, meeting.id);
     Ok(meeting)
 }
 
@@ -320,6 +335,127 @@ pub fn search_in_meeting(
 }
 
 // ============================================
+// NOTES COMMANDS
+// ============================================
+
+/// Save or update a note for a meeting
+#[tauri::command]
+pub fn save_note(
+    storage: tauri::State<'_, SharedStorageState>,
+    meeting_id: String,
+    content: String,
+) -> Result<Note, String> {
+    let storage = storage.lock();
+    let repos = storage.repositories();
+
+    let note = repos
+        .notes
+        .upsert(&meeting_id, &content)
+        .map_err(|e| e.to_string())?;
+
+    info!("Saved note for meeting {}", meeting_id);
+    Ok(note)
+}
+
+/// Get notes for a meeting
+#[tauri::command]
+pub fn get_notes(
+    storage: tauri::State<'_, SharedStorageState>,
+    meeting_id: String,
+) -> Result<Vec<Note>, String> {
+    let storage = storage.lock();
+    let repos = storage.repositories();
+
+    repos
+        .notes
+        .get_by_meeting(&meeting_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Get the primary note for a meeting (most recent)
+#[tauri::command]
+pub fn get_note(
+    storage: tauri::State<'_, SharedStorageState>,
+    meeting_id: String,
+) -> Result<Option<Note>, String> {
+    let storage = storage.lock();
+    let repos = storage.repositories();
+
+    repos
+        .notes
+        .get_primary(&meeting_id)
+        .map_err(|e| e.to_string())
+}
+
+// ============================================
+// SUMMARY COMMANDS
+// ============================================
+
+/// Save or update a summary for a meeting
+#[tauri::command]
+pub fn save_summary(
+    storage: tauri::State<'_, SharedStorageState>,
+    meeting_id: String,
+    summary_type: String,
+    content: String,
+    model_used: Option<String>,
+) -> Result<Summary, String> {
+    let storage = storage.lock();
+    let repos = storage.repositories();
+
+    let summary_type: SummaryType = summary_type
+        .parse()
+        .map_err(|e: anyhow::Error| e.to_string())?;
+
+    let summary = repos
+        .summaries
+        .upsert(&meeting_id, summary_type, &content, model_used.as_deref())
+        .map_err(|e| e.to_string())?;
+
+    info!(
+        "Saved {} summary for meeting {}",
+        summary_type.as_str(),
+        meeting_id
+    );
+    Ok(summary)
+}
+
+/// Get all summaries for a meeting
+#[tauri::command]
+pub fn get_summaries(
+    storage: tauri::State<'_, SharedStorageState>,
+    meeting_id: String,
+) -> Result<Vec<Summary>, String> {
+    let storage = storage.lock();
+    let repos = storage.repositories();
+
+    repos
+        .summaries
+        .get_by_meeting(&meeting_id)
+        .map_err(|e| e.to_string())
+}
+
+/// Get a specific summary by type
+#[tauri::command]
+pub fn get_summary(
+    storage: tauri::State<'_, SharedStorageState>,
+    meeting_id: String,
+    summary_type: String,
+) -> Result<Option<Summary>, String> {
+    let storage = storage.lock();
+    let repos = storage.repositories();
+
+    let summary_type: SummaryType = summary_type
+        .parse()
+        .map_err(|e: anyhow::Error| e.to_string())?;
+
+    repos
+        .summaries
+        .get_by_type(&meeting_id, summary_type)
+        .map_err(|e| e.to_string())
+}
+
+// ============================================
 // STATS COMMANDS
 // ============================================
 
@@ -345,12 +481,14 @@ pub fn get_storage_stats(
     let data_dir = &config.data_dir;
     let vectors_size = dir_size(&data_dir.join("data").join("vectors"));
     let audio_size = dir_size(&data_dir.join("audio"));
+    let models_size = dir_size(&config.models_dir);
 
     Ok(StorageStats {
         database_bytes: db_size,
         vectors_bytes: vectors_size,
         audio_bytes: audio_size,
-        total_bytes: db_size + vectors_size + audio_size,
+        models_bytes: models_size,
+        total_bytes: db_size + vectors_size + audio_size + models_size,
     })
 }
 

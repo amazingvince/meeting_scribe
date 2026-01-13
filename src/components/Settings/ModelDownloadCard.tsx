@@ -1,0 +1,165 @@
+/**
+ * Model download card with progress bar
+ */
+
+import { Download, Check, Loader2, Trash2, AlertCircle, RefreshCw, Play } from 'lucide-react';
+import { Button } from '../ui/Button';
+import { ProgressBar } from '../ui/Progress';
+import { Badge } from '../ui/Badge';
+
+interface ModelDownloadCardProps {
+  name: string;
+  description: string;
+  size: string;
+  downloaded: boolean;
+  isDownloading: boolean;
+  downloadProgress: number;
+  onDownload: () => void;
+  onDelete?: () => void;
+  error?: string | null;
+  onClearError?: () => void;
+  // Optional load functionality for LLM models
+  isLoaded?: boolean;
+  isLoadingModel?: boolean;
+  onLoad?: () => void;
+  // Optional default selection
+  isDefault?: boolean;
+  onSetDefault?: () => void;
+}
+
+export function ModelDownloadCard({
+  name,
+  description,
+  size,
+  downloaded,
+  isDownloading,
+  downloadProgress,
+  onDownload,
+  onDelete,
+  error,
+  onClearError,
+  isLoaded,
+  isLoadingModel,
+  onLoad,
+  isDefault,
+  onSetDefault,
+}: ModelDownloadCardProps) {
+  const handleRetry = () => {
+    onClearError?.();
+    onDownload();
+  };
+
+  return (
+    <div
+      className={`p-4 border rounded-lg ${
+        error
+          ? 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/10'
+          : 'border-gray-200 dark:border-gray-700'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="font-medium text-gray-900 dark:text-gray-100">
+              {name}
+            </h3>
+            {downloaded && !isLoaded && (
+              <Badge variant="default" size="sm">
+                <Check className="w-3 h-3 mr-1" />
+                Downloaded
+              </Badge>
+            )}
+            {isLoaded && (
+              <Badge variant="success" size="sm">
+                <Check className="w-3 h-3 mr-1" />
+                Loaded
+              </Badge>
+            )}
+            {error && (
+              <Badge variant="error" size="sm">
+                <AlertCircle className="w-3 h-3 mr-1" />
+                Failed
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {description}
+          </p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+            Size: {size}
+          </p>
+          {downloaded && onSetDefault && (
+            <label className="flex items-center gap-2 mt-2 cursor-pointer">
+              <input
+                type="radio"
+                checked={isDefault}
+                onChange={onSetDefault}
+                className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700"
+              />
+              <span className="text-sm text-gray-600 dark:text-gray-400">
+                Default
+              </span>
+            </label>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          {downloaded && onDelete && !isLoaded && (
+            <Button variant="ghost" size="icon" onClick={onDelete}>
+              <Trash2 className="w-4 h-4 text-red-500" />
+            </Button>
+          )}
+          {downloaded && onLoad && !isLoaded && !error && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onLoad}
+              disabled={isLoadingModel}
+            >
+              {isLoadingModel ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Play className="w-4 h-4" />
+              )}
+              {isLoadingModel ? 'Loading...' : 'Load'}
+            </Button>
+          )}
+          {!downloaded && !error && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={onDownload}
+              disabled={isDownloading}
+            >
+              {isDownloading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              {isDownloading ? 'Downloading...' : 'Download'}
+            </Button>
+          )}
+          {error && (
+            <Button variant="secondary" size="sm" onClick={handleRetry}>
+              <RefreshCw className="w-4 h-4" />
+              Retry
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {isDownloading && (
+        <div className="mt-3">
+          <ProgressBar value={downloadProgress} showLabel size="sm" />
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-3 text-sm text-red-600 dark:text-red-400 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+    </div>
+  );
+}

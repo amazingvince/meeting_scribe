@@ -20,7 +20,7 @@ pub mod vectors;
 pub use models::{
     DatabaseStats, Meeting, MeetingStatus, Note, StorageStats, StoredSegment, Summary, SummaryType,
 };
-pub use repositories::{ListOptions, MeetingRepository, Repositories, TranscriptRepository};
+pub use repositories::{ListOptions, MeetingRepository, NotesRepository, Repositories, SummariesRepository, TranscriptRepository};
 pub use search::{SearchHit, SearchHitWithSnippet, SearchService};
 pub use sqlite::Database;
 pub use vectors::{EmbeddingRecord, SearchResult as VectorSearchResult, VectorStore, EMBEDDING_DIM};
@@ -91,16 +91,18 @@ impl StorageState {
     }
 
     /// Get storage statistics (disk usage)
-    pub async fn storage_stats(&self, data_dir: &Path) -> Result<StorageStats> {
+    pub async fn storage_stats(&self, data_dir: &Path, models_dir: &Path) -> Result<StorageStats> {
         let db_size = self.db.file_size()?;
         let vectors_size = dir_size(&data_dir.join("data").join("vectors"))?;
         let audio_size = dir_size(&data_dir.join("audio"))?;
+        let models_size = dir_size(models_dir)?;
 
         Ok(StorageStats {
             database_bytes: db_size,
             vectors_bytes: vectors_size,
             audio_bytes: audio_size,
-            total_bytes: db_size + vectors_size + audio_size,
+            models_bytes: models_size,
+            total_bytes: db_size + vectors_size + audio_size + models_size,
         })
     }
 }
