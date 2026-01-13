@@ -6,7 +6,7 @@ pub mod downloader;
 pub mod registry;
 
 pub use downloader::{default_models_dir, DownloadProgress, DownloadStage, ModelDownloader};
-pub use registry::{ArchiveFormat, ModelInfo, ModelType, TranscriptionBackend};
+pub use registry::{ArchiveFormat, EmbeddingModel, ModelInfo, ModelType, TranscriptionBackend};
 
 use anyhow::Result;
 use parking_lot::RwLock;

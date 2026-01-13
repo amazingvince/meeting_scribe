@@ -60,10 +60,12 @@ ort = { version = "2.0.0-rc.10", default-features = false, features = ["load-dyn
 transcribe-rs = { git = "https://github.com/cjpais/transcribe-rs", features = ["parakeet"] }
 
 # ============================================
-# EMBEDDINGS (commented - added in step 06)
+# EMBEDDINGS
 # ============================================
-# ort = { version = "2", features = ["load-dynamic"] }
-# tokenizers = "0.19"
+# Note: ort is already defined in VAD section with load-dynamic feature
+tokenizers = "0.19"              # HuggingFace tokenizers for embedding models
+ndarray = "0.16"                 # N-dimensional arrays for tensor operations
+num_cpus = "1.16"                # CPU count for ONNX thread configuration
 
 # ============================================
 # LLM (commented - added in step 07)
@@ -74,8 +76,11 @@ transcribe-rs = { git = "https://github.com/cjpais/transcribe-rs", features = ["
 # STORAGE
 # ============================================
 rusqlite = { version = "0.32", features = ["bundled", "backup"] }
-# lancedb = "0.10"               # Added in step 05
-# arrow-array = "53"             # Added in step 05
+# LanceDB - disable default features to avoid aws-lc-sys which requires cmake
+lancedb = { version = "0.15", default-features = false }
+arrow-array = "53"
+arrow-schema = "53"
+futures-util = "0.3"
 
 # ============================================
 # UTILITIES
@@ -120,6 +125,12 @@ default = []
 cuda = []
 metal = []
 directml = []
+
+# ============================================
+# DEV DEPENDENCIES
+# ============================================
+[dev-dependencies]
+tempfile = "3"                   # Temporary directories for tests
 
 [profile.dev]
 opt-level = 1                    # Some optimization in dev for audio

@@ -98,6 +98,114 @@ impl std::fmt::Display for TranscriptionBackend {
     }
 }
 
+/// Embedding model variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum EmbeddingModel {
+    /// EmbeddingGemma 300M Q8 (default, best balance)
+    #[default]
+    EmbeddingGemmaQ8,
+    /// EmbeddingGemma 300M FP32 (highest quality)
+    EmbeddingGemmaFP32,
+    /// EmbeddingGemma 300M Q4 (fastest, smallest)
+    EmbeddingGemmaQ4,
+}
+
+impl EmbeddingModel {
+    /// Get all available embedding models
+    pub fn all() -> &'static [EmbeddingModel] {
+        &[
+            EmbeddingModel::EmbeddingGemmaQ8,
+            EmbeddingModel::EmbeddingGemmaFP32,
+            EmbeddingModel::EmbeddingGemmaQ4,
+        ]
+    }
+
+    /// Get the model info for this embedding model
+    pub fn model_info(&self) -> ModelInfo {
+        match self {
+            EmbeddingModel::EmbeddingGemmaQ8 => ModelInfo {
+                id: "embeddinggemma-300m-q8".to_string(),
+                name: "EmbeddingGemma 300M (Q8)".to_string(),
+                model_type: ModelType::Embedding,
+                size_bytes: 300_000_000, // ~300MB
+                download_url: "https://huggingface.co/onnx-community/embeddinggemma-e5-300M-ONNX/resolve/main/onnx/model_q8.onnx".to_string(),
+                description: "EmbeddingGemma 300M quantized to int8. Best balance of quality and size for semantic search.".to_string(),
+                is_archive: false,
+                archive_format: None,
+                extracted_dir_name: Some("embeddinggemma-300m-q8".to_string()),
+            },
+            EmbeddingModel::EmbeddingGemmaFP32 => ModelInfo {
+                id: "embeddinggemma-300m-fp32".to_string(),
+                name: "EmbeddingGemma 300M (FP32)".to_string(),
+                model_type: ModelType::Embedding,
+                size_bytes: 600_000_000, // ~600MB
+                download_url: "https://huggingface.co/onnx-community/embeddinggemma-e5-300M-ONNX/resolve/main/onnx/model.onnx".to_string(),
+                description: "EmbeddingGemma 300M full precision. Highest quality embeddings.".to_string(),
+                is_archive: false,
+                archive_format: None,
+                extracted_dir_name: Some("embeddinggemma-300m-fp32".to_string()),
+            },
+            EmbeddingModel::EmbeddingGemmaQ4 => ModelInfo {
+                id: "embeddinggemma-300m-q4".to_string(),
+                name: "EmbeddingGemma 300M (Q4)".to_string(),
+                model_type: ModelType::Embedding,
+                size_bytes: 150_000_000, // ~150MB
+                download_url: "https://huggingface.co/onnx-community/embeddinggemma-e5-300M-ONNX/resolve/main/onnx/model_q4.onnx".to_string(),
+                description: "EmbeddingGemma 300M quantized to int4. Fastest and smallest, good for low-end hardware.".to_string(),
+                is_archive: false,
+                archive_format: None,
+                extracted_dir_name: Some("embeddinggemma-300m-q4".to_string()),
+            },
+        }
+    }
+
+    /// Get the tokenizer info (same for all EmbeddingGemma variants)
+    pub fn tokenizer_info() -> ModelInfo {
+        ModelInfo {
+            id: "embeddinggemma-tokenizer".to_string(),
+            name: "EmbeddingGemma Tokenizer".to_string(),
+            model_type: ModelType::Embedding,
+            size_bytes: 4_000_000, // ~4MB
+            download_url: "https://huggingface.co/onnx-community/embeddinggemma-e5-300M-ONNX/resolve/main/tokenizer.json".to_string(),
+            description: "SentencePiece tokenizer for EmbeddingGemma models.".to_string(),
+            is_archive: false,
+            archive_format: None,
+            extracted_dir_name: None,
+        }
+    }
+
+    /// Get the directory name where the model is stored
+    pub fn model_dir_name(&self) -> &'static str {
+        match self {
+            EmbeddingModel::EmbeddingGemmaQ8 => "embeddinggemma-300m-q8",
+            EmbeddingModel::EmbeddingGemmaFP32 => "embeddinggemma-300m-fp32",
+            EmbeddingModel::EmbeddingGemmaQ4 => "embeddinggemma-300m-q4",
+        }
+    }
+
+    /// Get the embedding dimension for this model
+    pub fn embedding_dim(&self) -> usize {
+        // All EmbeddingGemma variants produce 768-dim embeddings
+        768
+    }
+
+    /// Get the maximum context length in tokens
+    pub fn max_tokens(&self) -> usize {
+        // EmbeddingGemma supports up to 2048 tokens
+        2048
+    }
+}
+
+impl std::fmt::Display for EmbeddingModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EmbeddingModel::EmbeddingGemmaQ8 => write!(f, "EmbeddingGemma Q8"),
+            EmbeddingModel::EmbeddingGemmaFP32 => write!(f, "EmbeddingGemma FP32"),
+            EmbeddingModel::EmbeddingGemmaQ4 => write!(f, "EmbeddingGemma Q4"),
+        }
+    }
+}
+
 /// Archive format for compressed model downloads
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArchiveFormat {

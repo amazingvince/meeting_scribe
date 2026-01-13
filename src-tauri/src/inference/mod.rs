@@ -2,6 +2,9 @@
 //!
 //! Contains transcription, embedding, and LLM engines.
 
+pub mod chunking;
+pub mod embedding;
+pub mod embedding_pipeline;
 pub mod pipeline;
 pub mod speaker;
 pub mod transcription;
@@ -16,3 +19,8 @@ pub use transcription::{
     format_duration, format_timestamp, Speaker, TranscriptionConfig, TranscriptionService,
     TranscriptSegment,
 };
+
+// Embedding exports
+pub use chunking::{chunk_text, chunk_transcript, TextChunk, TranscriptSegmentInput};
+pub use embedding::{cosine_similarity, EmbeddingService, EmbeddingTask, EMBEDDING_DIM, MAX_TOKENS};
+pub use embedding_pipeline::{EmbeddingPipeline, EmbeddingProgress, EmbeddingStage};

@@ -1,6 +1,8 @@
 //! Tauri commands - These functions are callable from the frontend via IPC
 
+pub mod embedding;
 pub mod recording;
+pub mod storage;
 pub mod transcription;
 
 use serde::{Deserialize, Serialize};
@@ -18,6 +20,22 @@ pub use transcription::{
     init_transcription, is_model_downloaded, is_transcription_ready, process_meeting,
     transcribe_file, unload_transcription, DownloadProgressEvent, ModelStatusItem,
     ModelStatusResponse, SharedModelManager, SharedTranscriptionService,
+};
+
+// Re-export storage commands
+pub use storage::{
+    count_meetings, create_meeting, delete_meeting, delete_transcript, get_database_stats,
+    get_meeting, get_storage_stats, get_transcript, get_transcript_text, list_meetings,
+    save_transcript, search_in_meeting, search_transcripts, search_transcripts_with_snippets,
+    update_meeting, update_meeting_status, SharedStorageState,
+};
+
+// Re-export embedding commands
+pub use embedding::{
+    calculate_similarity, embed_meeting_transcript, embed_text, get_embedding_info,
+    initialize_embedding, is_embedding_downloaded, is_embedding_ready, semantic_search,
+    unload_embedding, EmbeddingDownloadProgress, EmbeddingInfo, SemanticSearchResult,
+    SharedEmbeddingService,
 };
 
 /// Basic greeting command for testing IPC
