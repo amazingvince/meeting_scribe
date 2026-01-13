@@ -3,9 +3,13 @@
 //! Data access layer using the repository pattern.
 
 mod meetings;
+mod notes;
+mod summaries;
 mod transcripts;
 
 pub use meetings::{ListOptions, MeetingRepository};
+pub use notes::NotesRepository;
+pub use summaries::SummariesRepository;
 pub use transcripts::TranscriptRepository;
 
 use crate::storage::sqlite::Database;
@@ -18,6 +22,10 @@ pub struct Repositories {
     pub meetings: MeetingRepository,
     /// Transcript repository
     pub transcripts: TranscriptRepository,
+    /// Notes repository
+    pub notes: NotesRepository,
+    /// Summaries repository
+    pub summaries: SummariesRepository,
 }
 
 impl Repositories {
@@ -25,7 +33,9 @@ impl Repositories {
     pub fn new(db: Database) -> Self {
         Self {
             meetings: MeetingRepository::new(db.clone()),
-            transcripts: TranscriptRepository::new(db),
+            transcripts: TranscriptRepository::new(db.clone()),
+            notes: NotesRepository::new(db.clone()),
+            summaries: SummariesRepository::new(db),
         }
     }
 }
