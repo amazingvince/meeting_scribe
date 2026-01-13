@@ -55,9 +55,9 @@ voice_activity_detector = "0.2"  # Silero VAD v5
 ort = { version = "2.0.0-rc.10", default-features = false, features = ["load-dynamic"] }
 
 # ============================================
-# TRANSCRIPTION (commented - added in step 04)
+# TRANSCRIPTION
 # ============================================
-# transcribe-rs = { git = "https://github.com/cjpais/transcribe-rs", features = ["parakeet"] }
+transcribe-rs = { git = "https://github.com/cjpais/transcribe-rs", features = ["parakeet"] }
 
 # ============================================
 # EMBEDDINGS (commented - added in step 06)
@@ -89,6 +89,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 parking_lot = "0.12"
 dirs = "5"
 reqwest = { version = "0.12", features = ["stream", "json"] }
+
+# ============================================
+# ARCHIVE EXTRACTION
+# ============================================
+flate2 = "1"                     # Gzip decompression
+tar = "0.4"                      # Tar archive extraction
+bzip2 = "0.5"                    # Bzip2 decompression
+zip = "2"                        # Zip archive extraction
 
 # ============================================
 # PLATFORM-SPECIFIC
