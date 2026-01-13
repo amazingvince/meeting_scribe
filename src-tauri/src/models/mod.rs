@@ -3,10 +3,17 @@
 //! Handles model download, verification, and status tracking.
 
 pub mod downloader;
+pub mod llm_downloader;
 pub mod registry;
 
 pub use downloader::{default_models_dir, DownloadProgress, DownloadStage, ModelDownloader};
-pub use registry::{ArchiveFormat, EmbeddingModel, ModelInfo, ModelType, TranscriptionBackend};
+pub use llm_downloader::{
+    delete_llm_model, download_llm_model, get_llm_models_size, is_llm_downloaded,
+    is_llm_downloaded_async, list_downloaded_models, LlmDownloadProgress,
+};
+pub use registry::{
+    ArchiveFormat, EmbeddingModel, LlmModel, ModelInfo, ModelType, TranscriptionBackend,
+};
 
 use anyhow::Result;
 use parking_lot::RwLock;

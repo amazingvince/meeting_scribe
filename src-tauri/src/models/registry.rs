@@ -206,6 +206,118 @@ impl std::fmt::Display for EmbeddingModel {
     }
 }
 
+/// LLM model variants for summarization and chat
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum LlmModel {
+    /// Qwen3 4B Q4_K_M (default, best balance)
+    #[default]
+    Qwen3_4B,
+    /// Qwen3 1.7B Q4_K_M (lightweight, fastest)
+    Qwen3_1_7B,
+    /// Qwen3 8B Q4_K_M (highest quality)
+    Qwen3_8B,
+}
+
+impl LlmModel {
+    /// Get all available LLM models
+    pub fn all() -> &'static [LlmModel] {
+        &[LlmModel::Qwen3_4B, LlmModel::Qwen3_1_7B, LlmModel::Qwen3_8B]
+    }
+
+    /// Get the model info for this LLM
+    pub fn model_info(&self) -> ModelInfo {
+        match self {
+            LlmModel::Qwen3_4B => ModelInfo {
+                id: "qwen3-4b-q4_k_m".to_string(),
+                name: "Qwen3 4B (Q4_K_M)".to_string(),
+                model_type: ModelType::LLM,
+                size_bytes: 2_500_000_000, // ~2.5GB
+                download_url: "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/qwen3-4b-q4_k_m.gguf".to_string(),
+                description: "Qwen3 4B quantized to Q4_K_M. Best balance of quality, speed, and size. 32K context.".to_string(),
+                is_archive: false,
+                archive_format: None,
+                extracted_dir_name: None,
+            },
+            LlmModel::Qwen3_1_7B => ModelInfo {
+                id: "qwen3-1.7b-q4_k_m".to_string(),
+                name: "Qwen3 1.7B (Q4_K_M)".to_string(),
+                model_type: ModelType::LLM,
+                size_bytes: 1_000_000_000, // ~1.0GB
+                download_url: "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/qwen3-1.7b-q4_k_m.gguf".to_string(),
+                description: "Qwen3 1.7B quantized to Q4_K_M. Lightweight and fast, good for limited hardware.".to_string(),
+                is_archive: false,
+                archive_format: None,
+                extracted_dir_name: None,
+            },
+            LlmModel::Qwen3_8B => ModelInfo {
+                id: "qwen3-8b-q4_k_m".to_string(),
+                name: "Qwen3 8B (Q4_K_M)".to_string(),
+                model_type: ModelType::LLM,
+                size_bytes: 4_900_000_000, // ~4.9GB
+                download_url: "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/qwen3-8b-q4_k_m.gguf".to_string(),
+                description: "Qwen3 8B quantized to Q4_K_M. Highest quality summaries, needs 8GB+ VRAM.".to_string(),
+                is_archive: false,
+                archive_format: None,
+                extracted_dir_name: None,
+            },
+        }
+    }
+
+    /// Get the GGUF filename for this model
+    pub fn filename(&self) -> &'static str {
+        match self {
+            LlmModel::Qwen3_4B => "qwen3-4b-q4_k_m.gguf",
+            LlmModel::Qwen3_1_7B => "qwen3-1.7b-q4_k_m.gguf",
+            LlmModel::Qwen3_8B => "qwen3-8b-q4_k_m.gguf",
+        }
+    }
+
+    /// Get the download URL for this model
+    pub fn download_url(&self) -> &'static str {
+        match self {
+            LlmModel::Qwen3_4B => "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/qwen3-4b-q4_k_m.gguf",
+            LlmModel::Qwen3_1_7B => "https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/main/qwen3-1.7b-q4_k_m.gguf",
+            LlmModel::Qwen3_8B => "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/qwen3-8b-q4_k_m.gguf",
+        }
+    }
+
+    /// Get the approximate size in bytes
+    pub fn size_bytes(&self) -> u64 {
+        match self {
+            LlmModel::Qwen3_4B => 2_500_000_000,
+            LlmModel::Qwen3_1_7B => 1_000_000_000,
+            LlmModel::Qwen3_8B => 4_900_000_000,
+        }
+    }
+
+    /// Get the native context length in tokens
+    pub fn context_length(&self) -> u32 {
+        // All Qwen3 models support 32K native context
+        32768
+    }
+
+    /// Get the directory name where the model is stored
+    pub fn model_dir_name(&self) -> &'static str {
+        "llm"
+    }
+
+    /// Get a human-readable size string
+    pub fn size_formatted(&self) -> String {
+        let gb = self.size_bytes() as f64 / 1_000_000_000.0;
+        format!("{:.1} GB", gb)
+    }
+}
+
+impl std::fmt::Display for LlmModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LlmModel::Qwen3_4B => write!(f, "Qwen3 4B"),
+            LlmModel::Qwen3_1_7B => write!(f, "Qwen3 1.7B"),
+            LlmModel::Qwen3_8B => write!(f, "Qwen3 8B"),
+        }
+    }
+}
+
 /// Archive format for compressed model downloads
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ArchiveFormat {

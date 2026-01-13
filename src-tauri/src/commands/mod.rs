@@ -1,6 +1,7 @@
 //! Tauri commands - These functions are callable from the frontend via IPC
 
 pub mod embedding;
+pub mod llm;
 pub mod recording;
 pub mod storage;
 pub mod transcription;
@@ -36,6 +37,13 @@ pub use embedding::{
     initialize_embedding, is_embedding_downloaded, is_embedding_ready, semantic_search,
     unload_embedding, EmbeddingDownloadProgress, EmbeddingInfo, SemanticSearchResult,
     SharedEmbeddingService,
+};
+
+// Re-export LLM commands
+pub use llm::{
+    ask_meeting_question, count_tokens, download_llm, extract_action_items, generate_meeting_title,
+    generate_summary, generate_text, get_llm_status, initialize_llm, is_llm_model_downloaded,
+    list_llm_models, load_llm_model, unload_llm_model, LlmModelInfo, LlmStatus, SharedLlmService,
 };
 
 /// Basic greeting command for testing IPC

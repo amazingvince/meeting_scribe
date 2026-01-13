@@ -5,8 +5,11 @@
 pub mod chunking;
 pub mod embedding;
 pub mod embedding_pipeline;
+pub mod llm;
 pub mod pipeline;
+pub mod prompts;
 pub mod speaker;
+pub mod summarization;
 pub mod transcription;
 
 // Re-export key types
@@ -24,3 +27,7 @@ pub use transcription::{
 pub use chunking::{chunk_text, chunk_transcript, TextChunk, TranscriptSegmentInput};
 pub use embedding::{cosine_similarity, EmbeddingService, EmbeddingTask, EMBEDDING_DIM, MAX_TOKENS};
 pub use embedding_pipeline::{EmbeddingPipeline, EmbeddingProgress, EmbeddingStage};
+
+// LLM exports
+pub use llm::{prepare_transcript_for_llm, GenerationConfig, LlmService};
+pub use summarization::{ActionItem, Priority, SummarizationService, SummaryType};

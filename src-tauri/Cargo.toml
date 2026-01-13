@@ -68,9 +68,9 @@ ndarray = "0.16"                 # N-dimensional arrays for tensor operations
 num_cpus = "1.16"                # CPU count for ONNX thread configuration
 
 # ============================================
-# LLM (commented - added in step 07)
+# LLM
 # ============================================
-# llama-cpp-2 = "0.1"
+llama-cpp-2 = "0.1"
 
 # ============================================
 # STORAGE

@@ -2,10 +2,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use meeting_scribe_lib::commands::{
-    RecordingSession, SharedEmbeddingService, SharedModelManager, SharedRecordingSession,
-    SharedStorageState, SharedTranscriptionService,
+    RecordingSession, SharedEmbeddingService, SharedLlmService, SharedModelManager,
+    SharedRecordingSession, SharedStorageState, SharedTranscriptionService,
 };
-use meeting_scribe_lib::inference::TranscriptionService;
+use meeting_scribe_lib::inference::{LlmService, TranscriptionService};
 use meeting_scribe_lib::models::ModelManager;
 use meeting_scribe_lib::storage::initialize_storage;
 use meeting_scribe_lib::{commands, AppConfig};
@@ -55,6 +55,11 @@ async fn main() {
     // Initialize embedding service (lazy-loaded)
     let embedding_service: SharedEmbeddingService = Arc::new(Mutex::new(None));
 
+    // Initialize LLM service (model loaded on demand)
+    let llm_service = LlmService::new(config.models_dir.clone())
+        .expect("Failed to create LLM service");
+    let llm_service: SharedLlmService = Arc::new(Mutex::new(llm_service));
+
     info!("Models directory: {:?}", config.models_dir);
     info!("Data directory: {:?}", config.data_dir);
 
@@ -68,6 +73,7 @@ async fn main() {
         .manage(transcription_service)
         .manage(storage_state)
         .manage(embedding_service)
+        .manage(llm_service)
         .invoke_handler(tauri::generate_handler![
             // Core commands
             commands::greet,
@@ -116,6 +122,20 @@ async fn main() {
             commands::embedding::get_embedding_info,
             commands::embedding::semantic_search,
             commands::embedding::unload_embedding,
+            // LLM commands
+            commands::llm::initialize_llm,
+            commands::llm::load_llm_model,
+            commands::llm::unload_llm_model,
+            commands::llm::get_llm_status,
+            commands::llm::is_llm_model_downloaded,
+            commands::llm::download_llm,
+            commands::llm::list_llm_models,
+            commands::llm::generate_summary,
+            commands::llm::extract_action_items,
+            commands::llm::generate_meeting_title,
+            commands::llm::ask_meeting_question,
+            commands::llm::generate_text,
+            commands::llm::count_tokens,
         ])
         .setup(|_app| {
             info!("Application setup complete");
