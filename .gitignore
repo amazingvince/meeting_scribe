@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+target/
+
+# Build outputs
+dist/
+src-tauri/target/
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Models (downloaded separately)
+src-tauri/models/
+
+# ONNX Runtime (downloaded separately)
+ort-runtime/
+
+# Lock files (optional - keep if you want reproducible builds)
+# pnpm-lock.yaml
