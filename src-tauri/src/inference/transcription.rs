@@ -7,13 +7,14 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, error, info, warn};
 
 use transcribe_rs::engines::parakeet::{
     ParakeetEngine, ParakeetInferenceParams, ParakeetModelParams, TimestampGranularity,
 };
 use transcribe_rs::{TranscriptionEngine, TranscriptionResult as TrResult};
 
+use crate::audio::WHISPER_SAMPLE_RATE;
 use crate::models::{ModelManager, TranscriptionBackend};
 
 /// A transcribed segment with timing and speaker information
@@ -161,6 +162,7 @@ impl TranscriptionService {
 
         let model_path = model_manager.get_model_path(backend);
         info!("Initializing {} engine from {:?}", backend, model_path);
+        info!("ORT_DYLIB_PATH env: {:?}", std::env::var("ORT_DYLIB_PATH"));
 
         match backend {
             TranscriptionBackend::Parakeet => {
@@ -170,7 +172,12 @@ impl TranscriptionService {
                 let params = ParakeetModelParams::int8();
                 engine
                     .load_model_with_params(&model_path, params)
-                    .map_err(|e| anyhow::anyhow!("Failed to load Parakeet model: {}", e))?;
+                    .map_err(|e| {
+                        error!("Failed to load Parakeet model: {:?}", e);
+                        error!("Model path: {:?}", model_path);
+                        error!("Check if ONNX Runtime DLL version matches ort crate requirements");
+                        anyhow::anyhow!("Failed to load Parakeet model: {:?}", e)
+                    })?;
 
                 *self.engine.lock() = EngineState::Parakeet(engine);
             }
@@ -238,12 +245,102 @@ impl TranscriptionService {
         }
     }
 
+    /// Maximum chunk duration in seconds for Parakeet (avoid attention overflow)
+    const MAX_CHUNK_SECONDS: f32 = 30.0;
+    /// Overlap between chunks in seconds
+    const CHUNK_OVERLAP_SECONDS: f32 = 2.0;
+
     /// Transcribe a WAV file
     ///
     /// The WAV file should be 16kHz, mono, 16-bit PCM.
+    /// Long files are automatically chunked to avoid memory issues.
     pub fn transcribe_file(&self, wav_path: &Path) -> Result<Vec<TranscriptSegment>> {
         if !wav_path.exists() {
             anyhow::bail!("Audio file not found: {:?}", wav_path);
+        }
+
+        // Load the audio file to check duration
+        let samples = crate::audio::capture::load_wav(wav_path)?;
+        let duration_secs = samples.len() as f32 / WHISPER_SAMPLE_RATE as f32;
+
+        info!(
+            "Audio file {:?}: {:.1}s ({} samples)",
+            wav_path,
+            duration_secs,
+            samples.len()
+        );
+
+        // If audio is short enough, transcribe directly
+        if duration_secs <= Self::MAX_CHUNK_SECONDS {
+            return self.transcribe_samples_internal(samples, 0.0);
+        }
+
+        // For longer audio, chunk it
+        info!(
+            "Audio too long ({:.1}s), chunking into {:.0}s segments",
+            duration_secs,
+            Self::MAX_CHUNK_SECONDS
+        );
+
+        let chunk_samples = (Self::MAX_CHUNK_SECONDS * WHISPER_SAMPLE_RATE as f32) as usize;
+        let overlap_samples = (Self::CHUNK_OVERLAP_SECONDS * WHISPER_SAMPLE_RATE as f32) as usize;
+        let step_samples = chunk_samples - overlap_samples;
+
+        let mut all_segments: Vec<TranscriptSegment> = Vec::new();
+        let mut chunk_start = 0usize;
+        let mut chunk_index = 0;
+
+        while chunk_start < samples.len() {
+            let chunk_end = (chunk_start + chunk_samples).min(samples.len());
+            let chunk: Vec<f32> = samples[chunk_start..chunk_end].to_vec();
+
+            let time_offset_secs = chunk_start as f32 / WHISPER_SAMPLE_RATE as f32;
+
+            info!(
+                "Transcribing chunk {} ({:.1}s - {:.1}s)",
+                chunk_index,
+                time_offset_secs,
+                time_offset_secs + chunk.len() as f32 / WHISPER_SAMPLE_RATE as f32
+            );
+
+            match self.transcribe_samples_internal(chunk, time_offset_secs) {
+                Ok(mut segments) => {
+                    // Filter out segments that fall in the overlap region (except for first chunk)
+                    if chunk_index > 0 {
+                        let overlap_end_ms = (time_offset_secs + Self::CHUNK_OVERLAP_SECONDS) * 1000.0;
+                        segments.retain(|s| s.start_ms as f32 >= overlap_end_ms - 500.0);
+                    }
+                    all_segments.extend(segments);
+                }
+                Err(e) => {
+                    warn!("Chunk {} transcription failed: {}", chunk_index, e);
+                    // Continue with next chunk instead of failing completely
+                }
+            }
+
+            chunk_start += step_samples;
+            chunk_index += 1;
+        }
+
+        info!(
+            "Chunked transcription complete: {} total segments from {} chunks",
+            all_segments.len(),
+            chunk_index
+        );
+
+        // Sort by start time and deduplicate overlapping segments
+        all_segments.sort_by_key(|s| s.start_ms);
+        Ok(all_segments)
+    }
+
+    /// Internal method to transcribe samples with a time offset
+    fn transcribe_samples_internal(
+        &self,
+        samples: Vec<f32>,
+        time_offset_secs: f32,
+    ) -> Result<Vec<TranscriptSegment>> {
+        if samples.is_empty() {
+            return Ok(Vec::new());
         }
 
         let config = self.config.lock().clone();
@@ -264,19 +361,33 @@ impl TranscriptionService {
                     timestamp_granularity: granularity,
                 };
 
-                debug!("Transcribing file: {:?}", wav_path);
+                debug!("Transcribing {} samples", samples.len());
 
                 let result = engine
-                    .transcribe_file(wav_path, Some(params))
-                    .map_err(|e| anyhow::anyhow!("Transcription failed: {}", e))?;
+                    .transcribe_samples(samples, Some(params))
+                    .map_err(|e| {
+                        error!("Transcription error details: {:?}", e);
+                        error!("ORT_DYLIB_PATH env: {:?}", std::env::var("ORT_DYLIB_PATH"));
+                        anyhow::anyhow!("Transcription failed: {:?}", e)
+                    })?;
 
                 info!(
-                    "Transcribed {} segments from {:?}",
-                    result.segments.as_ref().map(|s| s.len()).unwrap_or(0),
-                    wav_path
+                    "Raw transcription result - text len: {}, segments: {:?}",
+                    result.text.len(),
+                    result.segments.as_ref().map(|s| s.len())
                 );
 
-                Ok(convert_result(result))
+                // Convert and adjust timestamps
+                let mut segments = convert_result(result);
+
+                // Add time offset to all segments
+                let offset_ms = (time_offset_secs * 1000.0) as u64;
+                for segment in &mut segments {
+                    segment.start_ms += offset_ms;
+                    segment.end_ms += offset_ms;
+                }
+
+                Ok(segments)
             }
         }
     }
@@ -289,6 +400,75 @@ impl TranscriptionService {
     ) -> Result<Vec<TranscriptSegment>> {
         let mut segments = self.transcribe_file(wav_path)?;
 
+        for segment in &mut segments {
+            segment.speaker = speaker;
+        }
+
+        Ok(segments)
+    }
+
+    /// Transcribe raw samples with a specific speaker label
+    ///
+    /// This is useful when you've pre-processed the audio (e.g., with AEC)
+    /// and want to transcribe the processed samples directly.
+    pub fn transcribe_samples_with_speaker(
+        &self,
+        samples: Vec<f32>,
+        speaker: Speaker,
+    ) -> Result<Vec<TranscriptSegment>> {
+        let duration_secs = samples.len() as f32 / WHISPER_SAMPLE_RATE as f32;
+
+        info!(
+            "Transcribing {} samples ({:.1}s) for speaker {:?}",
+            samples.len(),
+            duration_secs,
+            speaker
+        );
+
+        // If audio is short enough, transcribe directly
+        let mut segments = if duration_secs <= Self::MAX_CHUNK_SECONDS {
+            self.transcribe_samples_internal(samples, 0.0)?
+        } else {
+            // For longer audio, chunk it (same logic as transcribe_file)
+            let chunk_samples = (Self::MAX_CHUNK_SECONDS * WHISPER_SAMPLE_RATE as f32) as usize;
+            let overlap_samples =
+                (Self::CHUNK_OVERLAP_SECONDS * WHISPER_SAMPLE_RATE as f32) as usize;
+            let step_samples = chunk_samples - overlap_samples;
+
+            let mut all_segments: Vec<TranscriptSegment> = Vec::new();
+            let mut chunk_start = 0usize;
+            let mut chunk_index = 0;
+
+            while chunk_start < samples.len() {
+                let chunk_end = (chunk_start + chunk_samples).min(samples.len());
+                let chunk: Vec<f32> = samples[chunk_start..chunk_end].to_vec();
+
+                let time_offset_secs = chunk_start as f32 / WHISPER_SAMPLE_RATE as f32;
+
+                info!(
+                    "Transcribing chunk {} ({:.1}s-{:.1}s)",
+                    chunk_index,
+                    time_offset_secs,
+                    time_offset_secs + chunk.len() as f32 / WHISPER_SAMPLE_RATE as f32
+                );
+
+                match self.transcribe_samples_internal(chunk, time_offset_secs) {
+                    Ok(mut chunk_segments) => {
+                        all_segments.append(&mut chunk_segments);
+                    }
+                    Err(e) => {
+                        warn!("Failed to transcribe chunk {}: {}", chunk_index, e);
+                    }
+                }
+
+                chunk_start += step_samples;
+                chunk_index += 1;
+            }
+
+            all_segments
+        };
+
+        // Assign speaker to all segments
         for segment in &mut segments {
             segment.speaker = speaker;
         }
@@ -312,20 +492,83 @@ fn convert_result(result: TrResult) -> Vec<TranscriptSegment> {
             })
             .collect(),
         None => {
-            // No segments, create a single segment from the full text
+            // No segments from engine - split text into sentences for better display
             if result.text.trim().is_empty() {
                 Vec::new()
             } else {
-                vec![TranscriptSegment {
-                    start_ms: 0,
-                    end_ms: 0,
-                    text: result.text.trim().to_string(),
-                    speaker: Speaker::Unknown,
-                    confidence: None,
-                }]
+                split_text_into_segments(&result.text)
             }
         }
     }
+}
+
+/// Split text into sentence-based segments when no timestamp info available
+/// Uses estimated timestamps based on word count (~150 WPM speaking rate)
+fn split_text_into_segments(text: &str) -> Vec<TranscriptSegment> {
+    // Split by sentence-ending punctuation
+    let mut segments = Vec::new();
+    let mut current_pos = 0u64;
+
+    // Use regex-like splitting for sentences
+    let sentence_enders = ['.', '?', '!'];
+    let mut current_sentence = String::new();
+    let mut last_end = 0;
+
+    for (i, c) in text.char_indices() {
+        current_sentence.push(c);
+
+        if sentence_enders.contains(&c) {
+            let trimmed = current_sentence.trim();
+            if !trimmed.is_empty() && trimmed.len() > 1 {
+                // Estimate duration based on word count (~150 WPM = 400ms per word)
+                let word_count = trimmed.split_whitespace().count();
+                let duration_ms = (word_count as u64 * 400).max(500); // Min 500ms per segment
+
+                segments.push(TranscriptSegment {
+                    start_ms: current_pos,
+                    end_ms: current_pos + duration_ms,
+                    text: trimmed.to_string(),
+                    speaker: Speaker::Unknown,
+                    confidence: None,
+                });
+
+                current_pos += duration_ms;
+            }
+            current_sentence.clear();
+            last_end = i + c.len_utf8();
+        }
+    }
+
+    // Handle remaining text (no sentence-ending punctuation)
+    let remaining = text[last_end..].trim();
+    if !remaining.is_empty() {
+        let word_count = remaining.split_whitespace().count();
+        let duration_ms = (word_count as u64 * 400).max(500);
+
+        segments.push(TranscriptSegment {
+            start_ms: current_pos,
+            end_ms: current_pos + duration_ms,
+            text: remaining.to_string(),
+            speaker: Speaker::Unknown,
+            confidence: None,
+        });
+    }
+
+    // If no segments were created (text has no sentence structure), return single segment
+    if segments.is_empty() && !text.trim().is_empty() {
+        let word_count = text.split_whitespace().count();
+        let duration_ms = (word_count as u64 * 400).max(1000);
+
+        segments.push(TranscriptSegment {
+            start_ms: 0,
+            end_ms: duration_ms,
+            text: text.trim().to_string(),
+            speaker: Speaker::Unknown,
+            confidence: None,
+        });
+    }
+
+    segments
 }
 
 /// Format a timestamp in MM:SS or HH:MM:SS format

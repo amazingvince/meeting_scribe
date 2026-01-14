@@ -129,7 +129,11 @@ async fn main() {
             commands::embedding::calculate_similarity,
             commands::embedding::get_embedding_info,
             commands::embedding::semantic_search,
+            commands::embedding::hybrid_search,
             commands::embedding::unload_embedding,
+            commands::embedding::delete_embedding,
+            commands::embedding::get_unembedded_meetings,
+            commands::embedding::batch_embed_meetings,
             // LLM commands
             commands::llm::initialize_llm,
             commands::llm::load_llm_model,
@@ -143,6 +147,7 @@ async fn main() {
             commands::llm::extract_action_items,
             commands::llm::generate_meeting_title,
             commands::llm::ask_meeting_question,
+            commands::llm::stream_meeting_question,
             commands::llm::generate_text,
             commands::llm::count_tokens,
         ])

@@ -8,7 +8,7 @@ rust-version = "1.75"
 
 [lib]
 name = "meeting_scribe_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -17,7 +17,7 @@ tauri-build = { version = "2", features = [] }
 # ============================================
 # TAURI CORE
 # ============================================
-tauri = { version = "2", features = ["macos-private-api"] }
+tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
 tauri-plugin-shell = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
@@ -46,6 +46,7 @@ ringbuf = "0.4"                  # Lock-free ring buffers
 # ============================================
 rubato = "0.15"                  # High-quality resampling
 nnnoiseless = "0.5"              # RNNoise denoising (pure Rust)
+aec-rs = "1.0"                   # Acoustic Echo Cancellation (SpeexDSP)
 
 # ============================================
 # VOICE ACTIVITY DETECTION
@@ -138,9 +139,12 @@ tempfile = "3"                   # Temporary directories for tests
 
 [profile.dev]
 opt-level = 1                    # Some optimization in dev for audio
+debug = 1                        # Faster compiles than full debuginfo on Windows
+
+[profile.dev.package."*"]
+debug = 0                        # Don't generate debuginfo for dependencies
 
 [profile.release]
 lto = true
 codegen-units = 1
 strip = true
-

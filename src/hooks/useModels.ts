@@ -7,12 +7,12 @@ import { useEffect, useRef } from 'react';
 import { useSettingsStore, useToastStore } from '../stores';
 import { useTauriEvent } from './useTauriEvent';
 import type { LlmDownloadProgress, EmbeddingDownloadProgress } from '../types';
-import type { DownloadProgressEvent } from '../lib/tauri';
+import type { DownloadProgressEvent, BatchEmbedProgress } from '../lib/tauri';
 
 export function useModels() {
   const store = useSettingsStore();
   const toast = useToastStore();
-  const { setDownloadProgress, refreshModelStatus } = store;
+  const { setDownloadProgress, refreshModelStatus, setBatchEmbedProgress, refreshUnembeddedCount } = store;
 
   // Track if we've shown the completion toast to avoid duplicates
   const completedModelsRef = useRef<Set<string>>(new Set());
@@ -51,15 +51,32 @@ export function useModels() {
     }
   );
 
-  // Refresh model status on mount
+  // Listen for batch embed progress
+  useTauriEvent<BatchEmbedProgress>('batch-embed-progress', (data) => {
+    if (data.status === 'complete') {
+      setBatchEmbedProgress(null);
+      toast.success(`Embedded ${data.total} meeting(s) successfully`);
+      refreshUnembeddedCount();
+    } else {
+      setBatchEmbedProgress({
+        current: data.current,
+        total: data.total,
+        currentMeeting: data.current_meeting,
+      });
+    }
+  });
+
+  // Refresh model status and unembedded count on mount
   useEffect(() => {
     refreshModelStatus();
-  }, [refreshModelStatus]);
+    refreshUnembeddedCount();
+  }, [refreshModelStatus, refreshUnembeddedCount]);
 
   return {
     // Model status
     transcriptionDownloaded: store.transcriptionDownloaded,
     transcriptionReady: store.transcriptionReady,
+    embeddingDownloaded: store.embeddingDownloaded,
     embeddingReady: store.embeddingReady,
     llmReady: store.llmReady,
     llmStatus: store.llmStatus,
@@ -70,6 +87,7 @@ export function useModels() {
     isLoadingModels: store.isLoadingModels,
     isDownloading: store.isDownloading,
     isLoadingTranscription: store.isLoadingTranscription,
+    isLoadingEmbedding: store.isLoadingEmbedding,
     isLoadingLlm: store.isLoadingLlm,
     downloadProgress: store.downloadProgress,
     downloadingModel: store.downloadingModel,
@@ -82,9 +100,18 @@ export function useModels() {
     initializeEmbedding: store.initializeEmbedding,
     initializeLlm: store.initializeLlm,
     downloadTranscriptionModel: store.downloadTranscriptionModel,
+    downloadEmbeddingModel: store.downloadEmbeddingModel,
     downloadLlmModel: store.downloadLlmModel,
     deleteTranscriptionModel: store.deleteTranscriptionModel,
+    deleteEmbeddingModel: store.deleteEmbeddingModel,
     deleteLlmModel: store.deleteLlmModel,
     clearError: store.clearError,
+
+    // Batch embedding
+    unembeddedCount: store.unembeddedCount,
+    isBatchEmbedding: store.isBatchEmbedding,
+    batchEmbedProgress: store.batchEmbedProgress,
+    batchEmbedMeetings: store.batchEmbedMeetings,
+    refreshUnembeddedCount: store.refreshUnembeddedCount,
   };
 }

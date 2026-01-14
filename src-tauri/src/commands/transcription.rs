@@ -203,6 +203,9 @@ pub fn transcribe_file(
 }
 
 /// Process a complete meeting (both mic and system audio)
+///
+/// When both mic and system audio exist, AEC is applied to remove echo
+/// from the microphone input using system audio as reference.
 #[tauri::command]
 pub fn process_meeting(
     app: AppHandle,
@@ -212,9 +215,8 @@ pub fn process_meeting(
     mic_path: Option<String>,
     system_path: Option<String>,
 ) -> Result<ProcessingResult, String> {
-    use crate::inference::{
-        format_transcript, merge_transcripts, Speaker, TranscriptStats,
-    };
+    use crate::audio::{capture::load_wav, EchoCanceller, WHISPER_SAMPLE_RATE};
+    use crate::inference::{format_transcript, merge_transcripts, Speaker, TranscriptStats};
     use std::time::Instant;
 
     if !transcription.is_ready() {
@@ -239,7 +241,30 @@ pub fn process_meeting(
     let mut system_segments = Vec::new();
     let mut total_duration_ms: u64 = 0;
 
-    // Transcribe microphone audio
+    // Load system audio for AEC reference (if exists)
+    let system_samples: Option<Vec<f32>> = system_path.as_ref().and_then(|path_str| {
+        let path = PathBuf::from(path_str);
+        if path.exists() {
+            match load_wav(&path) {
+                Ok(samples) => {
+                    info!(
+                        "Loaded system audio for AEC: {} samples ({:.1}s)",
+                        samples.len(),
+                        samples.len() as f32 / WHISPER_SAMPLE_RATE as f32
+                    );
+                    Some(samples)
+                }
+                Err(e) => {
+                    info!("Could not load system audio for AEC: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    });
+
+    // Transcribe microphone audio (with AEC if system audio available)
     if let Some(ref path_str) = mic_path {
         let path = PathBuf::from(path_str);
         if path.exists() {
@@ -249,12 +274,41 @@ pub fn process_meeting(
                     "meeting_id": meeting_id,
                     "stage": "TranscribingMic",
                     "percent": 20.0,
-                    "message": "Transcribing microphone audio..."
+                    "message": if system_samples.is_some() {
+                        "Applying echo cancellation and transcribing microphone audio..."
+                    } else {
+                        "Transcribing microphone audio..."
+                    }
                 }),
             );
 
+            // Load mic audio
+            let mic_samples = load_wav(&path).map_err(|e| format!("Failed to load mic audio: {}", e))?;
+
+            // Apply AEC if we have system audio as reference
+            let processed_mic = if let Some(ref sys_samples) = system_samples {
+                info!(
+                    "Applying AEC: {} mic samples, {} reference samples",
+                    mic_samples.len(),
+                    sys_samples.len()
+                );
+
+                let mut aec = EchoCanceller::new();
+                let processed = aec.process_batch(&mic_samples, sys_samples);
+
+                info!(
+                    "AEC complete: {} input samples -> {} output samples",
+                    mic_samples.len(),
+                    processed.len()
+                );
+                processed
+            } else {
+                mic_samples
+            };
+
+            // Transcribe the (possibly AEC'd) mic audio
             mic_segments = transcription
-                .transcribe_file_with_speaker(&path, Speaker::You)
+                .transcribe_samples_with_speaker(processed_mic, Speaker::You)
                 .map_err(|e| e.to_string())?;
 
             if let Some(last) = mic_segments.last() {
@@ -265,7 +319,7 @@ pub fn process_meeting(
         }
     }
 
-    // Transcribe system audio
+    // Transcribe system audio (no AEC needed - this is the reference)
     if let Some(ref path_str) = system_path {
         let path = PathBuf::from(path_str);
         if path.exists() {
@@ -306,10 +360,23 @@ pub fn process_meeting(
     let formatted_text = format_transcript(&transcript);
     let stats = TranscriptStats::from_segments(&transcript);
 
+    info!(
+        "Merged transcript has {} segments (before save)",
+        transcript.len()
+    );
+
     // Save transcript to database
     {
         let storage = storage.lock();
         let repos = storage.repositories();
+
+        // Delete existing transcript segments first (for regeneration)
+        repos
+            .transcripts
+            .delete_by_meeting(&meeting_id)
+            .map_err(|e| format!("Failed to clear existing transcript: {}", e))?;
+        info!("Cleared existing transcript for meeting {}", meeting_id);
+
         let stored_segments: Vec<StoredSegment> = transcript
             .iter()
             .map(|s| StoredSegment::from_inference(s, &meeting_id))

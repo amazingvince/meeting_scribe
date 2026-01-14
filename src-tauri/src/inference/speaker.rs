@@ -4,6 +4,7 @@
 //! into a single chronological transcript.
 
 use super::transcription::{format_timestamp, Speaker, TranscriptSegment};
+use tracing::{debug, info};
 
 /// Merge transcripts from mic and system audio
 ///
@@ -13,7 +14,16 @@ pub fn merge_transcripts(
     mic_segments: Vec<TranscriptSegment>,
     system_segments: Vec<TranscriptSegment>,
 ) -> Vec<TranscriptSegment> {
-    let mut all_segments = Vec::with_capacity(mic_segments.len() + system_segments.len());
+    let mic_count = mic_segments.len();
+    let system_count = system_segments.len();
+    let total_count = mic_count + system_count;
+
+    info!(
+        "Merging transcripts: {} mic segments, {} system segments",
+        mic_count, system_count
+    );
+
+    let mut all_segments = Vec::with_capacity(total_count);
 
     // Add mic segments with "You" speaker
     for mut segment in mic_segments {
@@ -30,8 +40,24 @@ pub fn merge_transcripts(
     // Sort by start time
     all_segments.sort_by_key(|s| s.start_ms);
 
+    // Log first few segments for debugging
+    for (i, seg) in all_segments.iter().take(5).enumerate() {
+        debug!(
+            "Segment {}: {}ms-{}ms {:?} '{:.50}...'",
+            i, seg.start_ms, seg.end_ms, seg.speaker, seg.text
+        );
+    }
+
     // Optionally merge overlapping segments from the same speaker
-    merge_consecutive_segments(all_segments)
+    let merged = merge_consecutive_segments(all_segments);
+
+    info!(
+        "After merge: {} segments (from {} total)",
+        merged.len(),
+        total_count
+    );
+
+    merged
 }
 
 /// Merge consecutive segments from the same speaker if they're close together
@@ -40,7 +66,9 @@ fn merge_consecutive_segments(segments: Vec<TranscriptSegment>) -> Vec<Transcrip
         return segments;
     }
 
-    const MAX_GAP_MS: u64 = 500; // Maximum gap to merge (500ms)
+    // Only merge truly overlapping or adjacent segments (100ms tolerance)
+    // Previously 500ms was too aggressive and merged separate utterances
+    const MAX_GAP_MS: u64 = 100;
 
     let mut merged = Vec::with_capacity(segments.len());
     let mut current = segments[0].clone();

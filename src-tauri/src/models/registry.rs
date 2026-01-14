@@ -125,11 +125,11 @@ impl EmbeddingModel {
         match self {
             EmbeddingModel::EmbeddingGemmaQ8 => ModelInfo {
                 id: "embeddinggemma-300m-q8".to_string(),
-                name: "EmbeddingGemma 300M (Q8)".to_string(),
+                name: "EmbeddingGemma 300M (Quantized)".to_string(),
                 model_type: ModelType::Embedding,
-                size_bytes: 300_000_000, // ~300MB
-                download_url: "https://huggingface.co/onnx-community/embeddinggemma-e5-300M-ONNX/resolve/main/onnx/model_q8.onnx".to_string(),
-                description: "EmbeddingGemma 300M quantized to int8. Best balance of quality and size for semantic search.".to_string(),
+                size_bytes: 310_000_000, // ~310MB (model + data file)
+                download_url: "https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX/resolve/main/onnx/model_quantized.onnx".to_string(),
+                description: "EmbeddingGemma 300M quantized. Best balance of quality and size for semantic search.".to_string(),
                 is_archive: false,
                 archive_format: None,
                 extracted_dir_name: Some("embeddinggemma-300m-q8".to_string()),
@@ -138,8 +138,8 @@ impl EmbeddingModel {
                 id: "embeddinggemma-300m-fp32".to_string(),
                 name: "EmbeddingGemma 300M (FP32)".to_string(),
                 model_type: ModelType::Embedding,
-                size_bytes: 600_000_000, // ~600MB
-                download_url: "https://huggingface.co/onnx-community/embeddinggemma-e5-300M-ONNX/resolve/main/onnx/model.onnx".to_string(),
+                size_bytes: 1_230_000_000, // ~1.23GB (model + data file)
+                download_url: "https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX/resolve/main/onnx/model.onnx".to_string(),
                 description: "EmbeddingGemma 300M full precision. Highest quality embeddings.".to_string(),
                 is_archive: false,
                 archive_format: None,
@@ -149,8 +149,8 @@ impl EmbeddingModel {
                 id: "embeddinggemma-300m-q4".to_string(),
                 name: "EmbeddingGemma 300M (Q4)".to_string(),
                 model_type: ModelType::Embedding,
-                size_bytes: 150_000_000, // ~150MB
-                download_url: "https://huggingface.co/onnx-community/embeddinggemma-e5-300M-ONNX/resolve/main/onnx/model_q4.onnx".to_string(),
+                size_bytes: 198_000_000, // ~198MB (model + data file)
+                download_url: "https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX/resolve/main/onnx/model_q4.onnx".to_string(),
                 description: "EmbeddingGemma 300M quantized to int4. Fastest and smallest, good for low-end hardware.".to_string(),
                 is_archive: false,
                 archive_format: None,
@@ -160,17 +160,54 @@ impl EmbeddingModel {
     }
 
     /// Get the tokenizer info (same for all EmbeddingGemma variants)
+    /// Note: Using public Gemma tokenizer from pcuenq/gemma-tokenizer (no auth required)
     pub fn tokenizer_info() -> ModelInfo {
         ModelInfo {
             id: "embeddinggemma-tokenizer".to_string(),
             name: "EmbeddingGemma Tokenizer".to_string(),
             model_type: ModelType::Embedding,
-            size_bytes: 4_000_000, // ~4MB
-            download_url: "https://huggingface.co/onnx-community/embeddinggemma-e5-300M-ONNX/resolve/main/tokenizer.json".to_string(),
-            description: "SentencePiece tokenizer for EmbeddingGemma models.".to_string(),
+            size_bytes: 18_000_000, // ~18MB
+            download_url: "https://huggingface.co/pcuenq/gemma-tokenizer/resolve/main/tokenizer.json".to_string(),
+            description: "Gemma tokenizer for EmbeddingGemma models.".to_string(),
             is_archive: false,
             archive_format: None,
             extracted_dir_name: None,
+        }
+    }
+
+    /// Get the data file URL for external weights (ONNX models with external data)
+    pub fn data_file_url(&self) -> &'static str {
+        match self {
+            EmbeddingModel::EmbeddingGemmaQ8 => "https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX/resolve/main/onnx/model_quantized.onnx_data",
+            EmbeddingModel::EmbeddingGemmaFP32 => "https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX/resolve/main/onnx/model.onnx_data",
+            EmbeddingModel::EmbeddingGemmaQ4 => "https://huggingface.co/onnx-community/embeddinggemma-300m-ONNX/resolve/main/onnx/model_q4.onnx_data",
+        }
+    }
+
+    /// Get the data file name for this model
+    pub fn data_file_name(&self) -> &'static str {
+        match self {
+            EmbeddingModel::EmbeddingGemmaQ8 => "model_quantized.onnx_data",
+            EmbeddingModel::EmbeddingGemmaFP32 => "model.onnx_data",
+            EmbeddingModel::EmbeddingGemmaQ4 => "model_q4.onnx_data",
+        }
+    }
+
+    /// Get the model file name for this variant
+    pub fn model_file_name(&self) -> &'static str {
+        match self {
+            EmbeddingModel::EmbeddingGemmaQ8 => "model_quantized.onnx",
+            EmbeddingModel::EmbeddingGemmaFP32 => "model.onnx",
+            EmbeddingModel::EmbeddingGemmaQ4 => "model_q4.onnx",
+        }
+    }
+
+    /// Get the data file size in bytes
+    pub fn data_file_size(&self) -> u64 {
+        match self {
+            EmbeddingModel::EmbeddingGemmaQ8 => 309_000_000, // ~309MB
+            EmbeddingModel::EmbeddingGemmaFP32 => 1_230_000_000, // ~1.23GB
+            EmbeddingModel::EmbeddingGemmaQ4 => 197_000_000, // ~197MB
         }
     }
 

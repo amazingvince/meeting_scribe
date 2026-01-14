@@ -12,6 +12,9 @@ use crate::audio::buffer::AudioBuffer;
 use crate::audio::capture::BufferedResampler;
 use crate::audio::{AudioChannel, WHISPER_SAMPLE_RATE};
 
+/// Gain multiplier for system audio (loopback is often quieter than mic)
+const SYSTEM_AUDIO_GAIN: f32 = 3.0;
+
 /// System audio capture using WASAPI loopback
 pub struct SystemAudioCapture {
     stream: Option<Stream>,
@@ -184,17 +187,23 @@ where
                 samples
             };
 
+            // Apply gain boost to system audio (loopback is often quieter)
+            let amplified_samples: Vec<f32> = mono_samples
+                .iter()
+                .map(|&s| (s * SYSTEM_AUDIO_GAIN).clamp(-1.0, 1.0))
+                .collect();
+
             // Resample if needed
             let final_samples = if let Some(ref mut resampler) = *resampler.lock() {
-                match resampler.process(&mono_samples) {
+                match resampler.process(&amplified_samples) {
                     Ok(resampled) => resampled,
                     Err(e) => {
                         error!("Resampling error: {}", e);
-                        mono_samples
+                        amplified_samples
                     }
                 }
             } else {
-                mono_samples
+                amplified_samples
             };
 
             if !final_samples.is_empty() {

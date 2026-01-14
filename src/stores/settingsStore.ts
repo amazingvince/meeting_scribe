@@ -28,6 +28,7 @@ interface SettingsStore {
   embeddingInfo: EmbeddingInfo | null;
   transcriptionDownloaded: boolean;
   transcriptionReady: boolean;
+  embeddingDownloaded: boolean;
   embeddingReady: boolean;
   llmReady: boolean;
 
@@ -35,11 +36,17 @@ interface SettingsStore {
   isLoadingModels: boolean;
   isDownloading: boolean;
   isLoadingTranscription: boolean;
+  isLoadingEmbedding: boolean;
   isLoadingLlm: boolean;
   downloadProgress: number;
   downloadingModel: string | null;
   error: string | null;
   errorModel: string | null; // Which model had the error
+
+  // Batch embedding state
+  unembeddedCount: number;
+  isBatchEmbedding: boolean;
+  batchEmbedProgress: { current: number; total: number; currentMeeting: string } | null;
 
   // Actions - Preferences
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
@@ -54,11 +61,18 @@ interface SettingsStore {
   initializeEmbedding: () => Promise<boolean>;
   initializeLlm: (model?: LlmModel) => Promise<boolean>;
   downloadTranscriptionModel: (backend: TranscriptionBackend) => Promise<void>;
+  downloadEmbeddingModel: () => Promise<void>;
   downloadLlmModel: (model: LlmModel) => Promise<void>;
   deleteTranscriptionModel: (backend: TranscriptionBackend) => Promise<void>;
+  deleteEmbeddingModel: () => Promise<void>;
   deleteLlmModel: (model: LlmModel) => Promise<void>;
   setDownloadProgress: (progress: number, modelId?: string) => void;
   clearError: () => void;
+
+  // Actions - Batch embedding
+  refreshUnembeddedCount: () => Promise<void>;
+  batchEmbedMeetings: () => Promise<void>;
+  setBatchEmbedProgress: (progress: { current: number; total: number; currentMeeting: string } | null) => void;
 }
 
 export const useSettingsStore = create<SettingsStore>()(
@@ -77,6 +91,7 @@ export const useSettingsStore = create<SettingsStore>()(
       embeddingInfo: null,
       transcriptionDownloaded: false,
       transcriptionReady: false,
+      embeddingDownloaded: false,
       embeddingReady: false,
       llmReady: false,
 
@@ -84,11 +99,17 @@ export const useSettingsStore = create<SettingsStore>()(
       isLoadingModels: false,
       isDownloading: false,
       isLoadingTranscription: false,
+      isLoadingEmbedding: false,
       isLoadingLlm: false,
       downloadProgress: 0,
       downloadingModel: null,
       error: null,
       errorModel: null,
+
+      // Batch embedding state
+      unembeddedCount: 0,
+      isBatchEmbedding: false,
+      batchEmbedProgress: null,
 
       // Preference setters
       setTheme: (theme) => set({ theme }),
@@ -108,6 +129,7 @@ export const useSettingsStore = create<SettingsStore>()(
           const [
             transcriptionDownloaded,
             transcriptionReady,
+            embeddingDownloaded,
             embeddingReady,
             llmStatus,
             llmModels,
@@ -115,6 +137,7 @@ export const useSettingsStore = create<SettingsStore>()(
           ] = await Promise.all([
             api.isModelDownloaded(transcriptionBackend),
             api.isTranscriptionReady(),
+            api.isEmbeddingDownloaded(),
             api.isEmbeddingReady(),
             api.getLlmStatus(),
             api.listLlmModels(),
@@ -124,6 +147,7 @@ export const useSettingsStore = create<SettingsStore>()(
           set({
             transcriptionDownloaded,
             transcriptionReady,
+            embeddingDownloaded,
             embeddingReady,
             llmReady: llmStatus.loaded,
             llmStatus,
@@ -156,12 +180,17 @@ export const useSettingsStore = create<SettingsStore>()(
       },
 
       initializeEmbedding: async () => {
+        set({ isLoadingEmbedding: true, error: null });
         try {
           await api.initializeEmbedding();
-          set({ embeddingReady: true });
+          set({ embeddingReady: true, embeddingDownloaded: true, isLoadingEmbedding: false });
           return true;
         } catch (e) {
-          set({ error: e instanceof Error ? e.message : String(e) });
+          set({
+            error: e instanceof Error ? e.message : String(e),
+            errorModel: 'embedding',
+            isLoadingEmbedding: false,
+          });
           return false;
         }
       },
@@ -215,6 +244,36 @@ export const useSettingsStore = create<SettingsStore>()(
         }
       },
 
+      downloadEmbeddingModel: async () => {
+        set({
+          isDownloading: true,
+          downloadProgress: 0,
+          downloadingModel: 'embedding',
+          error: null,
+          errorModel: null,
+        });
+        try {
+          // initializeEmbedding downloads the model if needed
+          await api.initializeEmbedding();
+          set({
+            isDownloading: false,
+            downloadProgress: 100,
+            downloadingModel: null,
+            embeddingDownloaded: true,
+            embeddingReady: true,
+          });
+          // Refresh model status to update UI
+          await get().refreshModelStatus();
+        } catch (e) {
+          set({
+            error: e instanceof Error ? e.message : String(e),
+            errorModel: 'embedding',
+            isDownloading: false,
+            downloadingModel: null,
+          });
+        }
+      },
+
       downloadLlmModel: async (model) => {
         set({
           isDownloading: true,
@@ -256,6 +315,21 @@ export const useSettingsStore = create<SettingsStore>()(
         }
       },
 
+      deleteEmbeddingModel: async () => {
+        set({ error: null, errorModel: null });
+        try {
+          await api.deleteEmbedding();
+          set({ embeddingDownloaded: false, embeddingReady: false });
+          // Refresh model status to update UI
+          await get().refreshModelStatus();
+        } catch (e) {
+          set({
+            error: e instanceof Error ? e.message : String(e),
+            errorModel: 'embedding',
+          });
+        }
+      },
+
       deleteLlmModel: async (model) => {
         set({ error: null, errorModel: null });
         try {
@@ -278,6 +352,45 @@ export const useSettingsStore = create<SettingsStore>()(
       },
 
       clearError: () => set({ error: null, errorModel: null }),
+
+      // Batch embedding actions
+      refreshUnembeddedCount: async () => {
+        try {
+          const unembedded = await api.getUnembeddedMeetings();
+          set({ unembeddedCount: unembedded.length });
+        } catch (e) {
+          console.error('Failed to get unembedded meetings:', e);
+        }
+      },
+
+      batchEmbedMeetings: async () => {
+        set({ isBatchEmbedding: true, error: null });
+        try {
+          const result = await api.batchEmbedMeetings();
+          set({
+            isBatchEmbedding: false,
+            batchEmbedProgress: null,
+            unembeddedCount: 0,
+          });
+          if (result.failed.length > 0) {
+            set({
+              error: `${result.failed.length} meeting(s) failed to embed`,
+              errorModel: 'embedding',
+            });
+          }
+        } catch (e) {
+          set({
+            error: e instanceof Error ? e.message : String(e),
+            errorModel: 'embedding',
+            isBatchEmbedding: false,
+            batchEmbedProgress: null,
+          });
+        }
+      },
+
+      setBatchEmbedProgress: (progress) => {
+        set({ batchEmbedProgress: progress });
+      },
     }),
     {
       name: 'meeting-scribe-settings',

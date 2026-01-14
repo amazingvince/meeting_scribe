@@ -456,9 +456,75 @@ export async function semanticSearch(
   });
 }
 
+/** Hybrid search combining vector and full-text search */
+export async function hybridSearch(
+  query: string,
+  limit?: number,
+  meetingId?: string
+): Promise<SemanticSearchResult[]> {
+  return invoke<SemanticSearchResult[]>('hybrid_search', {
+    query,
+    limit,
+    meetingId,
+  });
+}
+
 /** Unload embedding model */
 export async function unloadEmbedding(): Promise<boolean> {
   return invoke<boolean>('unload_embedding');
+}
+
+/** Delete embedding model files (auto-unloads if loaded) */
+export async function deleteEmbedding(): Promise<void> {
+  return invoke<void>('delete_embedding');
+}
+
+/** Meeting without embeddings */
+export interface UnembeddedMeeting {
+  id: string;
+  title: string;
+  created_at: string;
+}
+
+/** Get list of meetings that don't have embeddings yet */
+export async function getUnembeddedMeetings(): Promise<UnembeddedMeeting[]> {
+  return invoke<UnembeddedMeeting[]>('get_unembedded_meetings');
+}
+
+/** Failed meeting during batch embedding */
+export interface FailedMeeting {
+  id: string;
+  title: string;
+  error: string;
+}
+
+/** Result of batch embedding operation */
+export interface BatchEmbedResult {
+  processed: number;
+  total: number;
+  failed: FailedMeeting[];
+}
+
+/** Batch embed all meetings that don't have embeddings */
+export async function batchEmbedMeetings(): Promise<BatchEmbedResult> {
+  return invoke<BatchEmbedResult>('batch_embed_meetings');
+}
+
+/** Batch embed progress event */
+export interface BatchEmbedProgress {
+  current: number;
+  total: number;
+  current_meeting: string;
+  status: string;
+}
+
+/** Listen for batch embedding progress */
+export function onBatchEmbedProgress(
+  callback: (data: BatchEmbedProgress) => void
+): Promise<UnlistenFn> {
+  return listen<BatchEmbedProgress>('batch-embed-progress', (event) => {
+    callback(event.payload);
+  });
 }
 
 // ============================================
@@ -524,14 +590,53 @@ export async function generateMeetingTitle(meetingId: string): Promise<string> {
   return invoke<string>('generate_meeting_title', { meetingId });
 }
 
-/** Answer a question about a meeting */
+/** Chat history message for RAG context */
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/** Answer a question about a meeting with optional conversation history */
 export async function askMeetingQuestion(
   meetingId: string,
-  question: string
+  question: string,
+  history?: ChatHistoryMessage[]
 ): Promise<string> {
   return invoke<string>('ask_meeting_question', {
     meetingId,
     question,
+    history,
+  });
+}
+
+/** Streaming chat token event */
+export interface ChatTokenEvent {
+  stream_id: string;
+  token: string;
+  done: boolean;
+}
+
+/** Start streaming answer to a meeting question (returns stream ID) */
+export async function streamMeetingQuestion(
+  streamId: string,
+  meetingId: string,
+  question: string,
+  history?: ChatHistoryMessage[]
+): Promise<void> {
+  return invoke<void>('stream_meeting_question', {
+    streamId,
+    meetingId,
+    question,
+    history,
+  });
+}
+
+/** Listen for streaming chat tokens */
+export function onChatToken(
+  callback: (data: ChatTokenEvent) => void
+): Promise<UnlistenFn> {
+  return listen<ChatTokenEvent>('chat-token', (event) => {
+    callback(event.payload);
   });
 }
 

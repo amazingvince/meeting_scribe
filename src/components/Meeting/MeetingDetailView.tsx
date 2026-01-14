@@ -86,7 +86,10 @@ export function MeetingDetailView() {
         <div className="flex-1 overflow-y-auto">
           <TabsContent value="transcript" className="h-full">
             <TranscriptPanel
+              meetingId={meeting.id}
               segments={transcript}
+              audioPathYou={meeting.audio_path_you}
+              audioPathOthers={meeting.audio_path_others}
               isLoading={isLoadingTranscript}
               onTimestampClick={handleTimestampClick}
             />

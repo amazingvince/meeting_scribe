@@ -56,6 +56,7 @@ export interface ChatSession {
 export interface SemanticSearchResult {
   id: string;
   meeting_id: string;
+  meeting_title: string;
   chunk_type: string;
   text: string;
   start_ms: number | null;

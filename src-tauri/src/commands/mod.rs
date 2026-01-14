@@ -34,17 +34,19 @@ pub use storage::{
 
 // Re-export embedding commands
 pub use embedding::{
-    calculate_similarity, embed_meeting_transcript, embed_text, get_embedding_info,
-    initialize_embedding, is_embedding_downloaded, is_embedding_ready, semantic_search,
-    unload_embedding, EmbeddingDownloadProgress, EmbeddingInfo, SemanticSearchResult,
-    SharedEmbeddingService,
+    batch_embed_meetings, calculate_similarity, delete_embedding, embed_meeting_transcript,
+    embed_text, get_embedding_info, get_unembedded_meetings, hybrid_search, initialize_embedding,
+    is_embedding_downloaded, is_embedding_ready, semantic_search, unload_embedding,
+    BatchEmbedProgress, BatchEmbedResult, EmbeddingDownloadProgress, EmbeddingInfo,
+    SemanticSearchResult, SharedEmbeddingService, UnembeddedMeeting,
 };
 
 // Re-export LLM commands
 pub use llm::{
     ask_meeting_question, count_tokens, download_llm, extract_action_items, generate_meeting_title,
     generate_summary, generate_text, get_llm_status, initialize_llm, is_llm_model_downloaded,
-    list_llm_models, load_llm_model, unload_llm_model, LlmModelInfo, LlmStatus, SharedLlmService,
+    list_llm_models, load_llm_model, stream_meeting_question, unload_llm_model, ChatTokenEvent,
+    LlmModelInfo, LlmStatus, SharedLlmService,
 };
 
 /// Basic greeting command for testing IPC

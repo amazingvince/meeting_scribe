@@ -2,15 +2,16 @@
  * Chat view - RAG chat interface
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { useChat } from '../../hooks';
 import { Button } from '../ui/Button';
 import { NoChatMessagesEmpty } from '../ui/EmptyState';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ChatSuggestions } from './ChatSuggestions';
+import { MeetingSelector } from './MeetingSelector';
 
 export function ChatView() {
   const navigate = useNavigate();
@@ -20,8 +21,11 @@ export function ChatView() {
     error,
     sendMessage,
     clearMessages,
+    selectedMeetingIds,
+    selectMeetings,
   } = useChat();
 
+  const [showFilter, setShowFilter] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Scroll to bottom on new messages
@@ -47,18 +51,54 @@ export function ChatView() {
 
   const hasMessages = messages.length > 0;
 
+  const toggleFilter = useCallback(() => {
+    setShowFilter((prev) => !prev);
+  }, []);
+
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-          Chat with Meetings
-        </h1>
-        {hasMessages && (
-          <Button variant="ghost" size="sm" onClick={clearMessages}>
-            <Trash2 className="w-4 h-4" />
-            Clear
-          </Button>
+      <div className="border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between px-6 py-4">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            Chat with Meetings
+          </h1>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={selectedMeetingIds.length > 0 ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={toggleFilter}
+              className="gap-1"
+            >
+              <Filter className="w-4 h-4" />
+              {selectedMeetingIds.length > 0 && (
+                <span className="bg-indigo-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+                  {selectedMeetingIds.length}
+                </span>
+              )}
+              {showFilter ? (
+                <ChevronUp className="w-3 h-3" />
+              ) : (
+                <ChevronDown className="w-3 h-3" />
+              )}
+            </Button>
+            {hasMessages && (
+              <Button variant="ghost" size="sm" onClick={clearMessages}>
+                <Trash2 className="w-4 h-4" />
+                Clear
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Meeting filter panel */}
+        {showFilter && (
+          <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800/50 border-t border-gray-200 dark:border-gray-700">
+            <MeetingSelector
+              selectedIds={selectedMeetingIds}
+              onSelect={selectMeetings}
+            />
+          </div>
         )}
       </div>
 

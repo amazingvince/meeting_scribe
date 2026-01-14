@@ -1,5 +1,6 @@
 //! Audio capture and processing module
 
+pub mod aec;
 pub mod buffer;
 pub mod capture;
 pub mod denoise;
@@ -9,6 +10,7 @@ pub mod vad;
 pub mod waveform;
 
 // Re-export key types for convenience
+pub use aec::EchoCanceller;
 pub use denoise::AudioDenoiser;
 pub use pipeline::{AudioPipeline, PipelineConfig, PreprocessingResult};
 pub use vad::{SpeechSegment, Vad, VadConfig};

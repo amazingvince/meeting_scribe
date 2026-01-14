@@ -4,6 +4,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
+use super::aec::EchoCanceller;
 use super::denoise::AudioDenoiser;
 use super::vad::{SpeechSegment, Vad, VadConfig};
 
@@ -14,6 +15,8 @@ pub struct PipelineConfig {
     pub vad: VadConfig,
     /// Enable denoising
     pub denoise_enabled: bool,
+    /// Enable acoustic echo cancellation
+    pub aec_enabled: bool,
 }
 
 impl Default for PipelineConfig {
@@ -21,6 +24,7 @@ impl Default for PipelineConfig {
         Self {
             vad: VadConfig::for_meetings(),
             denoise_enabled: true,
+            aec_enabled: true, // Enable AEC by default
         }
     }
 }
@@ -31,6 +35,7 @@ impl PipelineConfig {
         Self {
             vad: VadConfig::for_meetings(),
             denoise_enabled: false,
+            aec_enabled: true,
         }
     }
 
@@ -39,6 +44,16 @@ impl PipelineConfig {
         Self {
             vad: VadConfig::for_noisy(),
             denoise_enabled: true,
+            aec_enabled: true,
+        }
+    }
+
+    /// Configuration with AEC disabled
+    pub fn no_aec() -> Self {
+        Self {
+            vad: VadConfig::for_meetings(),
+            denoise_enabled: true,
+            aec_enabled: false,
         }
     }
 }
@@ -81,8 +96,9 @@ impl PreprocessingResult {
 
 /// Audio preprocessing pipeline
 ///
-/// Combines denoising and VAD into a single processing step
+/// Combines AEC, denoising and VAD into a single processing step
 pub struct AudioPipeline {
+    aec: EchoCanceller,
     denoiser: AudioDenoiser,
     vad: Vad,
     config: PipelineConfig,
@@ -91,39 +107,75 @@ pub struct AudioPipeline {
 impl AudioPipeline {
     /// Create a new preprocessing pipeline
     pub fn new(config: PipelineConfig) -> Result<Self> {
+        let mut aec = EchoCanceller::new();
+        aec.set_enabled(config.aec_enabled);
+
         let mut denoiser = AudioDenoiser::new()?;
         denoiser.set_enabled(config.denoise_enabled);
 
         let vad = Vad::new(config.vad.clone())?;
 
         info!(
-            "Audio pipeline initialized (denoise={})",
-            config.denoise_enabled
+            "Audio pipeline initialized (aec={}, denoise={})",
+            config.aec_enabled, config.denoise_enabled
         );
 
         Ok(Self {
+            aec,
             denoiser,
             vad,
             config,
         })
     }
 
-    /// Process audio samples through the pipeline
+    /// Process audio samples through the pipeline (without AEC)
     ///
     /// Pipeline: Denoise (if enabled) -> VAD -> Return segments
+    /// Use `process_with_aec` if you have reference audio for echo cancellation.
     pub fn process(&mut self, samples: &[f32], sample_rate: u32) -> PreprocessingResult {
-        // Step 1: Denoise (if enabled)
-        let processed = if self.config.denoise_enabled {
-            self.denoiser.process_buffer(samples)
+        self.process_with_aec(samples, &[], sample_rate)
+    }
+
+    /// Process audio samples with echo cancellation
+    ///
+    /// Pipeline: AEC (if enabled and reference provided) -> Denoise (if enabled) -> VAD
+    ///
+    /// # Arguments
+    /// * `mic_samples` - Microphone input (may contain echo from speakers)
+    /// * `system_samples` - System audio (what was played through speakers, used as AEC reference)
+    /// * `sample_rate` - Sample rate in Hz (should be 16000 for this pipeline)
+    pub fn process_with_aec(
+        &mut self,
+        mic_samples: &[f32],
+        system_samples: &[f32],
+        sample_rate: u32,
+    ) -> PreprocessingResult {
+        // Step 1: AEC (if enabled and reference audio available)
+        let after_aec = if self.config.aec_enabled && !system_samples.is_empty() {
+            let processed = self.aec.process_batch(mic_samples, system_samples);
+            info!(
+                "AEC processed {} mic samples with {} reference samples -> {} output samples",
+                mic_samples.len(),
+                system_samples.len(),
+                processed.len()
+            );
+            processed
         } else {
-            samples.to_vec()
+            mic_samples.to_vec()
         };
 
-        // Step 2: VAD
+        // Step 2: Denoise (if enabled)
+        let processed = if self.config.denoise_enabled {
+            self.denoiser.process_buffer(&after_aec)
+        } else {
+            after_aec
+        };
+
+        // Step 3: VAD
         let segments = self.vad.detect_speech(&processed);
 
         // Calculate durations
-        let duration_ms = (samples.len() as u64 * 1000) / sample_rate as u64;
+        let duration_ms = (mic_samples.len() as u64 * 1000) / sample_rate as u64;
         let speech_duration_ms: u64 = segments.iter().map(|s| s.duration_ms()).sum();
 
         info!(
@@ -149,6 +201,7 @@ impl AudioPipeline {
 
     /// Update configuration
     pub fn set_config(&mut self, config: PipelineConfig) -> Result<()> {
+        self.aec.set_enabled(config.aec_enabled);
         self.denoiser.set_enabled(config.denoise_enabled);
         self.vad = Vad::new(config.vad.clone())?;
         self.config = config;
@@ -162,6 +215,7 @@ impl AudioPipeline {
 
     /// Reset pipeline state (for new recording)
     pub fn reset(&mut self) {
+        self.aec.reset();
         self.denoiser.reset();
     }
 }

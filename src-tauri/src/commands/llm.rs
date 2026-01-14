@@ -6,7 +6,7 @@ use crate::inference::llm::{GenerationConfig, LlmService};
 use crate::inference::summarization::{ActionItem, SummarizationService};
 use crate::models::{delete_llm_model, download_llm_model, is_llm_downloaded, LlmModel};
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use tracing::info;
@@ -40,6 +40,15 @@ pub struct LlmModelInfo {
     pub context_length: u32,
     /// Whether the model is downloaded
     pub downloaded: bool,
+}
+
+/// Chat message for conversation history
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatHistoryMessage {
+    /// Message role (user or assistant)
+    pub role: String,
+    /// Message content
+    pub content: String,
 }
 
 /// Initialize the LLM service (downloads model if needed)
@@ -311,13 +320,14 @@ pub fn generate_meeting_title(
     Ok(title)
 }
 
-/// Answer a question about a meeting
+/// Answer a question about a meeting with optional conversation history
 #[tauri::command]
 pub fn ask_meeting_question(
     llm: tauri::State<'_, SharedLlmService>,
     storage: tauri::State<'_, SharedStorageState>,
     meeting_id: String,
     question: String,
+    history: Option<Vec<ChatHistoryMessage>>,
 ) -> Result<String, String> {
     let transcript = {
         let storage = storage.lock();
@@ -334,9 +344,28 @@ pub fn ask_meeting_question(
 
     let service = llm.lock();
     let summarizer = SummarizationService::new(&service);
-    summarizer
-        .answer_question(&question, &transcript)
-        .map_err(|e| format!("Failed to answer question: {}", e))
+
+    // Format chat history if provided
+    let chat_history = history
+        .map(|msgs| {
+            msgs.iter()
+                .map(|m| format!("{}: {}", m.role, m.content))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+
+    if chat_history.is_empty() {
+        // No history - use simple Q&A
+        summarizer
+            .answer_question(&question, &transcript)
+            .map_err(|e| format!("Failed to answer question: {}", e))
+    } else {
+        // With history - use RAG prompt with context
+        summarizer
+            .answer_with_context(&question, &transcript, &chat_history)
+            .map_err(|e| format!("Failed to answer question: {}", e))
+    }
 }
 
 /// Generate raw text (for testing/debugging)
@@ -355,6 +384,107 @@ pub fn generate_text(
     service
         .generate(&prompt, &config)
         .map_err(|e| format!("Failed to generate text: {}", e))
+}
+
+/// Streaming chat token event
+#[derive(Debug, Clone, Serialize)]
+pub struct ChatTokenEvent {
+    /// Unique stream ID
+    pub stream_id: String,
+    /// Token text
+    pub token: String,
+    /// Whether this is the final token
+    pub done: bool,
+}
+
+/// Answer a question about a meeting with streaming response
+#[tauri::command]
+pub fn stream_meeting_question(
+    app: AppHandle,
+    llm: tauri::State<'_, SharedLlmService>,
+    storage: tauri::State<'_, SharedStorageState>,
+    stream_id: String,
+    meeting_id: String,
+    question: String,
+    history: Option<Vec<ChatHistoryMessage>>,
+) -> Result<(), String> {
+    let transcript = {
+        let storage = storage.lock();
+        let repos = storage.repositories();
+        repos
+            .transcripts
+            .get_full_text(&meeting_id)
+            .map_err(|e| format!("Failed to get transcript: {}", e))?
+    };
+
+    if transcript.is_empty() {
+        return Err("No transcript available".to_string());
+    }
+
+    // Format chat history if provided
+    let chat_history = history
+        .map(|msgs| {
+            msgs.iter()
+                .map(|m| format!("{}: {}", m.role, m.content))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+
+    let service = llm.lock();
+
+    // Generate with streaming
+    let app_handle = app.clone();
+    let stream_id_clone = stream_id.clone();
+
+    let result = if chat_history.is_empty() {
+        // Build prompt manually for streaming
+        let prepared =
+            crate::inference::llm::prepare_transcript_for_llm(&transcript, 12000);
+        let prompt = crate::inference::prompts::quick_question_prompt(&question, &prepared);
+        let config = GenerationConfig::for_chat();
+
+        service.generate_stream(&prompt, &config, |token| {
+            let _ = app_handle.emit(
+                "chat-token",
+                ChatTokenEvent {
+                    stream_id: stream_id_clone.clone(),
+                    token: token.to_string(),
+                    done: false,
+                },
+            );
+        })
+    } else {
+        // Build RAG prompt for streaming
+        let prepared =
+            crate::inference::llm::prepare_transcript_for_llm(&transcript, 12000);
+        let prompt =
+            crate::inference::prompts::rag_chat_prompt(&prepared, &question, &chat_history);
+        let config = GenerationConfig::for_chat();
+
+        service.generate_stream(&prompt, &config, |token| {
+            let _ = app_handle.emit(
+                "chat-token",
+                ChatTokenEvent {
+                    stream_id: stream_id_clone.clone(),
+                    token: token.to_string(),
+                    done: false,
+                },
+            );
+        })
+    };
+
+    // Emit final event
+    let _ = app.emit(
+        "chat-token",
+        ChatTokenEvent {
+            stream_id,
+            token: String::new(),
+            done: true,
+        },
+    );
+
+    result.map(|_| ()).map_err(|e| format!("Streaming failed: {}", e))
 }
 
 /// Get estimated token count for text
