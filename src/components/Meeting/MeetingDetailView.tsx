@@ -4,9 +4,11 @@
 
 import { useCallback, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { FileQuestion } from 'lucide-react';
 import { useMeeting } from '../../hooks';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/Tabs';
 import { Spinner } from '../ui/Progress';
+import { EmptyState } from '../ui/EmptyState';
 import { MeetingHeader } from './MeetingHeader';
 import { AudioPlayer, type AudioPlayerHandle } from './AudioPlayer';
 import { TranscriptPanel } from './TranscriptPanel';
@@ -16,8 +18,14 @@ import { NotesPanel } from './NotesPanel';
 export function MeetingDetailView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { meeting, transcript, isLoading, isLoadingTranscript, updateMeeting } =
-    useMeeting(id ?? null);
+  const {
+    meeting,
+    transcript,
+    isLoading,
+    isLoadingTranscript,
+    updateMeeting,
+    error,
+  } = useMeeting(id ?? null);
 
   const audioPlayerRef = useRef<AudioPlayerHandle>(null);
   const [activeTab, setActiveTab] = useState('transcript');
@@ -43,10 +51,26 @@ export function MeetingDetailView() {
     audioPlayerRef.current?.play();
   }, []);
 
-  if (isLoading || !meeting) {
+  if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center">
         <Spinner size="lg" />
+      </div>
+    );
+  }
+
+  if (!meeting) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <EmptyState
+          icon={<FileQuestion className="w-12 h-12" />}
+          title="Meeting not found"
+          description={
+            error ??
+            "This meeting may have been deleted, or the link is invalid."
+          }
+          action={{ label: 'Back to Library', onClick: handleBack }}
+        />
       </div>
     );
   }

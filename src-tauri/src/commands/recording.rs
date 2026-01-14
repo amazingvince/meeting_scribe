@@ -263,71 +263,120 @@ pub async fn stop_recording(
     session: tauri::State<'_, SharedRecordingSession>,
 ) -> Result<RecordingResult, String> {
     let session_arc = session.inner().clone();
-    let mut session_guard = session_arc.lock();
 
-    if session_guard.state != RecordingState::Recording {
-        return Err("Not currently recording".to_string());
-    }
+    // Take ownership of resources without holding the lock across blocking work.
+    let (meeting_id, start_time, buffers, mut mic_recorder, mut system_recorder, stop_tx) = {
+        let mut session_guard = session_arc.lock();
+
+        if session_guard.state != RecordingState::Recording {
+            return Err("Not currently recording".to_string());
+        }
+
+        // Mark as processing so the waveform loop exits promptly.
+        session_guard.state = RecordingState::Processing;
+
+        (
+            session_guard.id.clone(),
+            session_guard.start_time,
+            session_guard.buffers.clone(),
+            session_guard.mic_recorder.take(),
+            session_guard.system_recorder.take(),
+            session_guard.stop_tx.take(),
+        )
+    };
+
+    let reset_session = || {
+        let mut session_guard = session_arc.lock();
+        session_guard.state = RecordingState::Idle;
+        session_guard.start_time = None;
+        session_guard.buffers = Arc::new(AudioBufferManager::new());
+    };
 
     // Signal capture thread to stop
-    if let Some(stop_tx) = session_guard.stop_tx.take() {
+    if let Some(stop_tx) = stop_tx {
         let _ = stop_tx.send(());
     }
 
-    // Give capture thread time to finish
+    // Give capture thread time to finish transferring samples
     std::thread::sleep(Duration::from_millis(100));
 
-    // Drain buffers to recorders
-    let mic_samples = session_guard.buffers.mic.drain_samples();
-    if let Some(ref mut recorder) = session_guard.mic_recorder {
+    // Drain buffers to recorders (drain twice to catch trailing samples)
+    let mic_samples = buffers.mic.drain_samples();
+    if let Some(ref mut recorder) = mic_recorder {
         recorder
             .write_samples(&mic_samples)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                reset_session();
+                e.to_string()
+            })?;
     }
 
-    let system_samples = session_guard.buffers.system.drain_samples();
-    if let Some(ref mut recorder) = session_guard.system_recorder {
+    let system_samples = buffers.system.drain_samples();
+    if let Some(ref mut recorder) = system_recorder {
         recorder
             .write_samples(&system_samples)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                reset_session();
+                e.to_string()
+            })?;
+    }
+
+    std::thread::sleep(Duration::from_millis(20));
+
+    let mic_samples = buffers.mic.drain_samples();
+    if let Some(ref mut recorder) = mic_recorder {
+        recorder
+            .write_samples(&mic_samples)
+            .map_err(|e| {
+                reset_session();
+                e.to_string()
+            })?;
+    }
+
+    let system_samples = buffers.system.drain_samples();
+    if let Some(ref mut recorder) = system_recorder {
+        recorder
+            .write_samples(&system_samples)
+            .map_err(|e| {
+                reset_session();
+                e.to_string()
+            })?;
     }
 
     // Finalize WAV files
-    let mic_path: Option<PathBuf> = session_guard
-        .mic_recorder
+    let mic_path: Option<PathBuf> = mic_recorder
         .take()
         .map(|r| r.finalize())
         .transpose()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            reset_session();
+            e.to_string()
+        })?;
 
-    let system_path: Option<PathBuf> = session_guard
-        .system_recorder
+    let system_path: Option<PathBuf> = system_recorder
         .take()
         .map(|r| r.finalize())
         .transpose()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            reset_session();
+            e.to_string()
+        })?;
 
-    let duration_ms = session_guard
-        .start_time
+    let duration_ms = start_time
         .map(|t| t.elapsed().as_millis() as u64)
         .unwrap_or(0);
 
     let result = RecordingResult {
-        meeting_id: session_guard.id.clone(),
+        meeting_id: meeting_id.clone(),
         duration_ms,
         mic_path: mic_path.map(|p| p.display().to_string()),
         system_path: system_path.map(|p| p.display().to_string()),
     };
 
-    // Reset session
-    session_guard.state = RecordingState::Idle;
-    session_guard.start_time = None;
-    session_guard.buffers = Arc::new(AudioBufferManager::new());
+    // Reset session after successful finalize
+    reset_session();
 
-    info!(
-        "Recording stopped: {} ({}ms)",
-        result.meeting_id, duration_ms
-    );
+    info!("Recording stopped: {} ({}ms)", result.meeting_id, duration_ms);
     Ok(result)
 }
 

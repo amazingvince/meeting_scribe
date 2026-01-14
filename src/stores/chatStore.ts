@@ -46,7 +46,10 @@ interface ChatStore {
 }
 
 function generateId(): string {
-  return Math.random().toString(36).substring(2, 15);
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -172,12 +175,22 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       error: null,
     }));
 
-    try {
-      const streamId = generateId();
-      let streamedContent = '';
+    const streamId = generateId();
+    let streamedContent = '';
+    let unlisten: (() => void) | null = null;
 
+    const stopListening = () => {
+      if (!unlisten) return;
+      try {
+        unlisten();
+      } finally {
+        unlisten = null;
+      }
+    };
+
+    try {
       // Set up token listener
-      const unlisten = await api.onChatToken((event: ChatTokenEvent) => {
+      unlisten = await api.onChatToken((event: ChatTokenEvent) => {
         if (event.stream_id !== streamId) return;
 
         if (event.done) {
@@ -194,22 +207,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             }
             return { messages: msgs, isLoading: false, isStreaming: false };
           });
-          unlisten();
-        } else {
-          // Append token
-          streamedContent += event.token;
-          set((state) => {
-            const msgs = [...state.messages];
-            const lastIdx = msgs.length - 1;
-            if (lastIdx >= 0 && msgs[lastIdx].role === 'assistant') {
-              msgs[lastIdx] = {
-                ...msgs[lastIdx],
-                content: streamedContent,
-              };
-            }
-            return { messages: msgs };
-          });
+          stopListening();
+          return;
         }
+
+        // Append token
+        streamedContent += event.token;
+        set((state) => {
+          const msgs = [...state.messages];
+          const lastIdx = msgs.length - 1;
+          if (lastIdx >= 0 && msgs[lastIdx].role === 'assistant') {
+            msgs[lastIdx] = {
+              ...msgs[lastIdx],
+              content: streamedContent,
+            };
+          }
+          return { messages: msgs };
+        });
       });
 
       // Determine which meeting to query
@@ -225,22 +239,48 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       if (!meetingId) {
-        set({
-          error: "No meetings found to search",
-          isLoading: false,
-          isStreaming: false,
+        set((state) => {
+          const msgs = [...state.messages];
+          const lastIdx = msgs.length - 1;
+          if (lastIdx >= 0 && msgs[lastIdx].role === 'assistant') {
+            msgs[lastIdx] = {
+              ...msgs[lastIdx],
+              content: 'No meetings found to search.',
+              isStreaming: false,
+            };
+          }
+          return {
+            messages: msgs,
+            error: 'No meetings found to search',
+            isLoading: false,
+            isStreaming: false,
+          };
         });
-        unlisten();
+        stopListening();
         return;
       }
 
-      // Start streaming
+      // Start streaming (final completion handled by the `done` event)
       await api.streamMeetingQuestion(streamId, meetingId, content, history);
     } catch (e) {
-      set({
-        error: e instanceof Error ? e.message : String(e),
-        isLoading: false,
-        isStreaming: false,
+      const message = e instanceof Error ? e.message : String(e);
+      stopListening();
+      set((state) => {
+        const msgs = [...state.messages];
+        const lastIdx = msgs.length - 1;
+        if (lastIdx >= 0 && msgs[lastIdx].role === 'assistant') {
+          msgs[lastIdx] = {
+            ...msgs[lastIdx],
+            content: `Error: ${message}`,
+            isStreaming: false,
+          };
+        }
+        return {
+          messages: msgs,
+          error: message,
+          isLoading: false,
+          isStreaming: false,
+        };
       });
     }
   },

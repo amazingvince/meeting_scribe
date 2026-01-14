@@ -4,7 +4,7 @@
 
 use parking_lot::Mutex;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::inference::TranscriptSegment;
 use crate::storage::{
@@ -142,6 +142,7 @@ pub fn update_meeting_status(
 #[tauri::command]
 pub async fn delete_meeting(
     storage: tauri::State<'_, SharedStorageState>,
+    config: tauri::State<'_, crate::AppConfig>,
     id: String,
 ) -> Result<bool, String> {
     // Get vector store and delete from SQLite (release lock before await)
@@ -159,6 +160,20 @@ pub async fn delete_meeting(
             .delete_meeting_embeddings(&id)
             .await
             .map_err(|e| e.to_string())?;
+
+        // Best-effort cleanup of on-disk audio files.
+        let meeting_audio_dir = config.audio_dir.join(&id);
+        if meeting_audio_dir.exists() {
+            if let Err(e) = std::fs::remove_dir_all(&meeting_audio_dir) {
+                warn!(
+                    "Meeting {} deleted but failed to remove audio dir {:?}: {}",
+                    id, meeting_audio_dir, e
+                );
+            } else {
+                info!("Deleted audio directory for meeting {}", id);
+            }
+        }
+
         info!("Deleted meeting and embeddings: {}", id);
     }
 

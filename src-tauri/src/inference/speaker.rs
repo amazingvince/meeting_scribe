@@ -66,9 +66,9 @@ fn merge_consecutive_segments(segments: Vec<TranscriptSegment>) -> Vec<Transcrip
         return segments;
     }
 
-    // Only merge truly overlapping or adjacent segments (100ms tolerance)
-    // Previously 500ms was too aggressive and merged separate utterances
-    const MAX_GAP_MS: u64 = 100;
+    // Only merge truly overlapping or near-adjacent segments.
+    // 500ms was too aggressive and could merge separate utterances.
+    const MAX_GAP_MS: u64 = 250;
 
     let mut merged = Vec::with_capacity(segments.len());
     let mut current = segments[0].clone();

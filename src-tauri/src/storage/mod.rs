@@ -112,18 +112,18 @@ fn dir_size(path: &Path) -> Result<u64> {
     let mut size = 0;
 
     if path.is_dir() {
-        for entry in std::fs::read_dir(path).unwrap_or_else(|_| {
-            // Return empty iterator if directory doesn't exist
-            std::fs::read_dir(".").unwrap()
-        }) {
-            if let Ok(entry) = entry {
-                let metadata = entry.metadata()?;
+        let entries = match std::fs::read_dir(path) {
+            Ok(entries) => entries,
+            Err(_) => return Ok(0),
+        };
 
-                if metadata.is_file() {
-                    size += metadata.len();
-                } else if metadata.is_dir() {
-                    size += dir_size(&entry.path())?;
-                }
+        for entry in entries.flatten() {
+            let metadata = entry.metadata()?;
+
+            if metadata.is_file() {
+                size += metadata.len();
+            } else if metadata.is_dir() {
+                size += dir_size(&entry.path())?;
             }
         }
     }
@@ -206,7 +206,13 @@ mod tests {
         let temp: TempDir = TempDir::new().unwrap();
         let storage: StorageState = initialize_storage(temp.path()).await.unwrap();
 
-        let stats: StorageStats = storage.storage_stats(temp.path()).await.unwrap();
+        let models_dir = temp.path().join("models");
+        std::fs::create_dir_all(&models_dir).unwrap();
+
+        let stats: StorageStats = storage
+            .storage_stats(temp.path(), &models_dir)
+            .await
+            .unwrap();
 
         // Database should have some size (at least the schema)
         assert!(stats.database_bytes > 0);

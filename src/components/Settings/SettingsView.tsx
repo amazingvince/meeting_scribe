@@ -14,7 +14,20 @@ export function SettingsView() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
 
   useEffect(() => {
-    api.getAppInfo().then(setAppInfo);
+    let cancelled = false;
+
+    api
+      .getAppInfo()
+      .then((info) => {
+        if (!cancelled) setAppInfo(info);
+      })
+      .catch((e) => {
+        console.warn('Failed to load app info:', e);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (

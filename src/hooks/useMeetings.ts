@@ -16,14 +16,7 @@ export function useMeetings(options: UseMeetingsOptions = {}) {
   const store = useMeetingsStore();
   const { fetchMeetings, searchQuery, statusFilter } = store;
 
-  // Fetch meetings on mount if autoFetch is enabled
-  useEffect(() => {
-    if (autoFetch) {
-      fetchMeetings();
-    }
-  }, [autoFetch, fetchMeetings]);
-
-  // Re-fetch when filters change
+  // Fetch on mount and whenever filters change
   useEffect(() => {
     if (autoFetch) {
       fetchMeetings();
@@ -86,14 +79,29 @@ export function useMeeting(meetingId: string | null) {
   const { fetchMeeting, selectMeeting, fetchTranscript } = store;
 
   useEffect(() => {
-    if (meetingId) {
-      fetchMeeting(meetingId).then((meeting) => {
-        if (meeting) {
-          selectMeeting(meeting);
-          fetchTranscript(meetingId);
-        }
-      });
+    let cancelled = false;
+
+    if (!meetingId) {
+      selectMeeting(null);
+      return () => {
+        cancelled = true;
+      };
     }
+
+    // Clear any previously-selected meeting while loading the new one.
+    selectMeeting(null);
+
+    fetchMeeting(meetingId).then((meeting) => {
+      if (cancelled) return;
+      if (meeting) {
+        selectMeeting(meeting);
+        fetchTranscript(meetingId);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [meetingId, fetchMeeting, selectMeeting, fetchTranscript]);
 
   return {

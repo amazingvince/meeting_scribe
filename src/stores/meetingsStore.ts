@@ -62,6 +62,7 @@ export const useMeetingsStore = create<MeetingsStore>((set, get) => ({
   },
 
   fetchMeeting: async (id) => {
+    set({ isLoading: true, error: null });
     try {
       const meeting = await api.getMeeting(id);
       if (meeting) {
@@ -70,20 +71,32 @@ export const useMeetingsStore = create<MeetingsStore>((set, get) => ({
           meetings: state.meetings.map((m) => (m.id === id ? meeting : m)),
           selectedMeeting:
             state.selectedMeeting?.id === id ? meeting : state.selectedMeeting,
+          isLoading: false,
         }));
+      } else {
+        set({ isLoading: false });
       }
       return meeting;
     } catch (e) {
-      set({ error: e instanceof Error ? e.message : String(e) });
+      set({
+        error: e instanceof Error ? e.message : String(e),
+        isLoading: false,
+      });
       return null;
     }
   },
 
   fetchTranscript: async (meetingId) => {
-    set({ isLoadingTranscript: true });
+    set({ isLoadingTranscript: true, error: null });
     try {
       const transcript = await api.getTranscript(meetingId);
-      set({ selectedTranscript: transcript, isLoadingTranscript: false });
+      // Avoid race conditions when switching meetings quickly
+      set((state) => {
+        if (state.selectedMeeting?.id !== meetingId) {
+          return { isLoadingTranscript: false };
+        }
+        return { selectedTranscript: transcript, isLoadingTranscript: false };
+      });
     } catch (e) {
       set({
         error: e instanceof Error ? e.message : String(e),
@@ -94,10 +107,13 @@ export const useMeetingsStore = create<MeetingsStore>((set, get) => ({
   },
 
   selectMeeting: (meeting) => {
-    set({
+    set((state) => ({
       selectedMeeting: meeting,
-      selectedTranscript: meeting ? get().selectedTranscript : [],
-    });
+      selectedTranscript:
+        meeting && state.selectedMeeting?.id === meeting.id
+          ? state.selectedTranscript
+          : [],
+    }));
   },
 
   createMeeting: async (title) => {

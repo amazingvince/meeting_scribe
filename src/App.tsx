@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
-import { invoke } from '@tauri-apps/api/core';
 import { Layout } from './components/Layout';
 import { RecordingView } from './components/Recording/RecordingView';
 import { LibraryView } from './components/Library/LibraryView';
@@ -8,19 +7,27 @@ import { MeetingDetailView } from './components/Meeting/MeetingDetailView';
 import { ChatView } from './components/Chat/ChatView';
 import { SettingsView } from './components/Settings/SettingsView';
 import { ToastContainer } from './components/ui/Toast';
-
-interface AppInfo {
-  version: string;
-  data_dir: string;
-  platform: string;
-}
+import { getAppInfo, type AppInfo } from './lib/tauri';
 
 function App() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
 
   useEffect(() => {
     // Test IPC connection on mount
-    invoke<AppInfo>('get_app_info').then(setAppInfo);
+    let cancelled = false;
+
+    getAppInfo()
+      .then((info) => {
+        if (!cancelled) setAppInfo(info);
+      })
+      .catch((e) => {
+        console.warn('Failed to get app info:', e);
+        if (!cancelled) setAppInfo(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (

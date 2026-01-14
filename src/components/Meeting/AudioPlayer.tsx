@@ -71,15 +71,21 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
       },
     }));
 
-    const playAudio = useCallback(async () => {
+    const playAudio = useCallback(async (trackOverride?: typeof activeTrack) => {
       try {
+        const track = trackOverride ?? activeTrack;
         const promises: Promise<void>[] = [];
 
-        if (micAudioRef.current && (activeTrack === 'mic' || activeTrack === 'both')) {
+        if (micAudioRef.current && (track === 'mic' || track === 'both')) {
           promises.push(micAudioRef.current.play());
+        } else if (micAudioRef.current) {
+          micAudioRef.current.pause();
         }
-        if (systemAudioRef.current && (activeTrack === 'system' || activeTrack === 'both')) {
+
+        if (systemAudioRef.current && (track === 'system' || track === 'both')) {
           promises.push(systemAudioRef.current.play());
+        } else if (systemAudioRef.current) {
+          systemAudioRef.current.pause();
         }
 
         await Promise.all(promises);
@@ -159,36 +165,69 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
       }
     }, [isMuted, volume]);
 
-    // Handle time update from primary audio
-    const handleTimeUpdate = useCallback(() => {
-      const audio = micAudioRef.current ?? systemAudioRef.current;
-      if (audio) {
-        const timeMs = audio.currentTime * 1000;
+    // Handle time update from the active (master) audio element
+    const handleTimeUpdate = useCallback(
+      (e: React.SyntheticEvent<HTMLAudioElement>) => {
+        const master =
+          activeTrack === 'mic'
+            ? micAudioRef.current
+            : activeTrack === 'system'
+              ? systemAudioRef.current
+              : micAudioRef.current ?? systemAudioRef.current;
+
+        if (!master || e.currentTarget !== master) return;
+
+        const timeMs = master.currentTime * 1000;
         setCurrentTime(timeMs);
         onTimeUpdate?.(timeMs);
-      }
-    }, [onTimeUpdate]);
+      },
+      [activeTrack, onTimeUpdate]
+    );
 
     // Handle metadata loaded
-    const handleLoadedMetadata = useCallback(() => {
-      const audio = micAudioRef.current ?? systemAudioRef.current;
-      if (audio && !durationMs) {
-        setDuration(audio.duration * 1000);
-      }
-      setIsLoaded(true);
-    }, [durationMs]);
+    const handleLoadedMetadata = useCallback(
+      (e: React.SyntheticEvent<HTMLAudioElement>) => {
+        const audio = e.currentTarget;
+
+        if (!durationMs && Number.isFinite(audio.duration)) {
+          setDuration((prev) => Math.max(prev, audio.duration * 1000));
+        }
+
+        setIsLoaded(true);
+      },
+      [durationMs]
+    );
 
     // Handle audio ended
-    const handleEnded = useCallback(() => {
-      setIsPlaying(false);
-      setCurrentTime(0);
-      if (micAudioRef.current) {
-        micAudioRef.current.currentTime = 0;
-      }
-      if (systemAudioRef.current) {
-        systemAudioRef.current.currentTime = 0;
-      }
-    }, []);
+    const handleEnded = useCallback(
+      (e: React.SyntheticEvent<HTMLAudioElement>) => {
+        const master =
+          activeTrack === 'mic'
+            ? micAudioRef.current
+            : activeTrack === 'system'
+              ? systemAudioRef.current
+              : micAudioRef.current ?? systemAudioRef.current;
+
+        if (!master || e.currentTarget !== master) return;
+
+        if (micAudioRef.current) {
+          micAudioRef.current.pause();
+        }
+        if (systemAudioRef.current) {
+          systemAudioRef.current.pause();
+        }
+
+        setIsPlaying(false);
+        setCurrentTime(0);
+        if (micAudioRef.current) {
+          micAudioRef.current.currentTime = 0;
+        }
+        if (systemAudioRef.current) {
+          systemAudioRef.current.currentTime = 0;
+        }
+      },
+      [activeTrack]
+    );
 
     // Sync volume when track changes
     useEffect(() => {
@@ -234,8 +273,9 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
           <audio
             ref={systemAudioRef}
             src={systemUrl}
-            onLoadedMetadata={!micUrl ? handleLoadedMetadata : undefined}
-            onEnded={!micUrl ? handleEnded : undefined}
+            onTimeUpdate={handleTimeUpdate}
+            onLoadedMetadata={handleLoadedMetadata}
+            onEnded={handleEnded}
             preload="metadata"
           />
         )}
@@ -314,7 +354,19 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
               {(['mic', 'system', 'both'] as const).map((track) => (
                 <button
                   key={track}
-                  onClick={() => setActiveTrack(track)}
+                  onClick={() => {
+                    setActiveTrack(track);
+                    if (isPlaying) {
+                      const seconds = currentTime / 1000;
+                      if (micAudioRef.current) {
+                        micAudioRef.current.currentTime = seconds;
+                      }
+                      if (systemAudioRef.current) {
+                        systemAudioRef.current.currentTime = seconds;
+                      }
+                      void playAudio(track);
+                    }
+                  }}
                   className={`
                     text-xs px-2 py-1 rounded transition-colors
                     ${
