@@ -58,6 +58,9 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Setup Protobuf compiler (protoc)
+        uses: arduino/setup-protoc@v3
+
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
