@@ -52,8 +52,9 @@ aec-rs = "1.0"                   # Acoustic Echo Cancellation (SpeexDSP)
 # VOICE ACTIVITY DETECTION
 # ============================================
 voice_activity_detector = "0.2"  # Silero VAD v5
-# Override ort to use load-dynamic feature (avoids MSVC version issues)
-ort = { version = "2.0.0-rc.10", default-features = false, features = ["load-dynamic"] }
+# Use load-dynamic to avoid MSVC mismatch issues, but bundle runtime binaries
+# so end users don't need a separate ONNX Runtime install.
+ort = { version = "2.0.0-rc.10", default-features = false, features = ["load-dynamic", "download-binaries", "copy-dylibs"] }
 
 # ============================================
 # TRANSCRIPTION
