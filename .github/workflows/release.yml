@@ -40,6 +40,7 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             libsoup-3.0-dev \
+            libasound2-dev \
             patchelf
 
       - name: Setup pnpm
