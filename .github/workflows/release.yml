@@ -70,6 +70,12 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Configure macOS deployment target
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: |
+          echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+          echo "CMAKE_OSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
+
       - name: Build and upload release artifacts
         uses: tauri-apps/tauri-action@v0
         env:
