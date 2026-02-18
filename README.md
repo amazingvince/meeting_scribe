@@ -47,7 +47,8 @@ pnpm tauri build --debug
 ```
 
 `pnpm tauri ...` now stages the same pinned ONNX Runtime binaries used by release builds into `src-tauri/resources/runtime` before invoking Tauri. The first run on a machine may download these files.
-On macOS `pnpm tauri build ...` also runs a preflight cleanup that detaches stale project-owned interstitial DMG mounts and removes stale `rw.*.dmg` bundle artifacts left by failed packaging runs.
+On macOS, local builds also enforce `11.0` deployment target for Cargo/CMake-native dependencies (including `llama-cpp-sys`) to match bundle support policy.
+On macOS `pnpm tauri build ...` runs preflight cleanup for stale `llama-cpp-sys` CMake caches and stale project-owned interstitial DMG mounts (`rw.*.dmg` artifacts/attachments) left by failed packaging runs.
 
 ### macOS Notes
 - Grant Microphone permission when prompted.

@@ -39,6 +39,8 @@ src-tauri/resources/runtime/onnxruntime*.dll
 
 # Local Cargo config
 .cargo/
+!.cargo/
+!.cargo/config.toml
 
 # Personal/scratch files
 my_scratch.md

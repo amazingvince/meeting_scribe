@@ -28,11 +28,18 @@ function runOrExit(command, args) {
 function main() {
   const args = process.argv.slice(2);
 
+  if (process.platform === 'darwin') {
+    // Ensure native C/C++ dependencies (cmake-based crates) use the app baseline.
+    process.env.MACOSX_DEPLOYMENT_TARGET ??= '11.0';
+    process.env.CMAKE_OSX_DEPLOYMENT_TARGET ??= '11.0';
+  }
+
   // Keep ONNX runtime staging consistent for dev/build/release flows.
   runOrExit('pnpm', ['stage:onnx-runtime']);
 
-  // macOS dmg builds can fail repeatedly when stale interstitial images remain mounted.
+  // macOS preflight checks for reliable local builds.
   if (process.platform === 'darwin' && args[0] === 'build') {
+    runOrExit('node', ['scripts/preflight-macos-llama-cmake.mjs']);
     runOrExit('node', ['scripts/preflight-macos-dmg.mjs']);
   }
 
