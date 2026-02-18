@@ -39,64 +39,67 @@ export function SettingsView() {
   }, []);
 
   return (
-    <div className="space-y-6 pb-8">
-      <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
-        Settings
-      </h1>
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <header className="px-6 py-4 border-b border-border bg-card">
+        <h2 className="text-foreground">Settings</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          Appearance, models, audio capture, and local data
+        </p>
+      </header>
 
-      <AppearanceSettings />
-      <ModelSettings />
-      <AudioSettings platform={appInfo?.platform} />
-      <StorageSettings />
+      {/* Content */}
+      <div className="no-scrollbar flex-1 min-h-0 overflow-y-auto">
+        <div className="max-w-2xl mx-auto px-6 py-8 pb-20 md:pb-8 space-y-6">
+          <AppearanceSettings />
+          <ModelSettings />
+          <AudioSettings platform={appInfo?.platform} />
+          <StorageSettings />
 
-      {/* App Info */}
-      <section>
-        <Card>
-          <div className="flex items-center gap-2 mb-4">
-            <Info className="w-5 h-5 text-gray-500" />
-            <CardTitle>About</CardTitle>
-          </div>
-
-          {isLoadingAppInfo && (
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-3/4" />
+          {/* About */}
+          <Card>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/70">
+                <Info className="w-5 h-5 text-muted-foreground" />
+              </div>
+              <CardTitle>About</CardTitle>
             </div>
-          )}
 
-          {!isLoadingAppInfo && appInfo && (
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-500 dark:text-gray-400">Version</span>
-                <span className="text-gray-900 dark:text-gray-100">
-                  {appInfo.version}
-                </span>
+            {isLoadingAppInfo && (
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-3/4" />
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500 dark:text-gray-400">Platform</span>
-                <span className="text-gray-900 dark:text-gray-100">
-                  {appInfo.platform}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500 dark:text-gray-400">
-                  Data Directory
-                </span>
-                <span className="text-gray-900 dark:text-gray-100 font-mono text-xs truncate max-w-[250px]">
-                  {appInfo.data_dir}
-                </span>
-              </div>
-            </div>
-          )}
+            )}
 
-          {!isLoadingAppInfo && !appInfo && (
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Unable to load application info.
-            </p>
-          )}
-        </Card>
-      </section>
+            {!isLoadingAppInfo && appInfo && (
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Version</span>
+                  <span className="text-foreground/80">{appInfo.version}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Platform</span>
+                  <span className="text-foreground/80">{appInfo.platform}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Data Directory</span>
+                  <span className="max-w-[250px] truncate font-mono text-xs text-foreground/80">
+                    {appInfo.data_dir}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {!isLoadingAppInfo && !appInfo && (
+              <p className="text-sm text-muted-foreground">
+                Unable to load application info.
+              </p>
+            )}
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

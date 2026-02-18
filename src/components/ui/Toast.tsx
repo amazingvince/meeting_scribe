@@ -9,6 +9,7 @@ import {
   Info,
   X,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useToastStore, type Toast as ToastType, type ToastType as ToastVariant } from '../../stores/toastStore';
 
 const icons: Record<ToastVariant, typeof CheckCircle> = {
@@ -41,20 +42,25 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
   const Icon = icons[toast.type];
 
   return (
-    <div
+    <motion.div
+      layout
+      initial={{ opacity: 0, x: 16, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, x: 16, scale: 0.985 }}
+      transition={{ duration: 0.12, ease: [0.22, 1, 0.36, 1] }}
       className={`
         flex items-start gap-3 p-4
-        border rounded-lg shadow-lg
+        border rounded-lg shadow-lg backdrop-blur-sm
         ${styles[toast.type]}
       `}
     >
       <Icon className={`w-5 h-5 flex-shrink-0 ${iconStyles[toast.type]}`} />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+        <p className="text-sm font-medium text-foreground">
           {toast.title}
         </p>
         {toast.message && (
-          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+          <p className="mt-1 text-sm text-muted-foreground">
             {toast.message}
           </p>
         )}
@@ -62,12 +68,12 @@ function ToastItem({ toast, onDismiss }: ToastItemProps) {
       {toast.dismissible && (
         <button
           onClick={onDismiss}
-          className="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          className="flex-shrink-0 text-muted-foreground hover:text-foreground"
         >
           <X className="w-4 h-4" />
         </button>
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -78,13 +84,15 @@ export function ToastContainer() {
 
   return (
     <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-full max-w-sm">
-      {toasts.map((toast) => (
-        <ToastItem
-          key={toast.id}
-          toast={toast}
-          onDismiss={() => removeToast(toast.id)}
-        />
-      ))}
+      <AnimatePresence initial={false}>
+        {toasts.map((toast) => (
+          <ToastItem
+            key={toast.id}
+            toast={toast}
+            onDismiss={() => removeToast(toast.id)}
+          />
+        ))}
+      </AnimatePresence>
     </div>
   );
 }

@@ -92,7 +92,9 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
   return (
     <Card>
       <div className="flex items-center gap-2 mb-4">
-        <AudioLines className="w-5 h-5 text-teal-500" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/70">
+          <AudioLines className="w-5 h-5 text-muted-foreground" />
+        </div>
         <CardTitle>Audio Capture And Echo Control</CardTitle>
       </div>
 
@@ -100,7 +102,7 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
         <div>
           <label
             htmlFor="echo-cancellation-backend"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+            className="mb-2 block text-sm font-medium text-foreground"
           >
             Echo Cancellation Backend
           </label>
@@ -108,23 +110,23 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
             id="echo-cancellation-backend"
             value={echoCancellationBackend}
             onChange={(e) => setEchoCancellationBackend(e.target.value as 'webrtc_aec3' | 'speex')}
-            className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
+            className="w-full rounded-md border border-input bg-input-background px-3 py-2 text-sm text-foreground"
           >
             <option value="webrtc_aec3">WebRTC AEC3 (Recommended)</option>
             <option value="speex">SpeexDSP (Legacy/Fallback)</option>
           </select>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+          <p className="mt-2 text-xs text-muted-foreground">
             Applied during transcript processing to remove speaker playback from the mic channel.
           </p>
         </div>
 
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-3">
+        <div className="space-y-3 rounded-lg border border-border p-3">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+              <p className="text-sm font-medium text-foreground">
                 Live Transcript Preview (Experimental)
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Shows rolling semi-realtime transcript snippets while recording. Uses extra CPU.
               </p>
             </div>
@@ -135,8 +137,8 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
                 onChange={(e) => setLiveTranscriptionEnabled(e.target.checked)}
                 className="sr-only peer"
               />
-              <span className="relative w-10 h-6 bg-gray-200 dark:bg-gray-700 rounded-full peer peer-checked:bg-teal-500 transition-colors">
-                <span className="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transform peer-checked:translate-x-4 transition-transform" />
+              <span className="relative h-6 w-10 rounded-full bg-muted transition-colors peer peer-checked:bg-primary">
+                <span className="absolute top-0.5 left-0.5 w-5 h-5 bg-card rounded-full shadow transform peer-checked:translate-x-4 transition-transform" />
               </span>
             </label>
           </div>
@@ -145,7 +147,7 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
             <div>
               <label
                 htmlFor="live-preview-interval"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                className="mb-2 block text-sm font-medium text-foreground"
               >
                 Preview Refresh Interval
               </label>
@@ -153,7 +155,7 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
                 id="live-preview-interval"
                 value={liveTranscriptionIntervalSec}
                 onChange={(e) => setLiveTranscriptionIntervalSec(Number(e.target.value))}
-                className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
+                className="w-full rounded-md border border-input bg-input-background px-3 py-2 text-sm text-foreground"
               >
                 <option value={3}>Every 3 seconds</option>
                 <option value={5}>Every 5 seconds</option>
@@ -166,16 +168,16 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
         </div>
 
         {!isPlatformKnown ? (
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+          <p className="text-sm text-muted-foreground">
             Detecting platform...
           </p>
         ) : !supportsLoopbackInputSelection ? (
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+          <p className="text-sm text-muted-foreground">
             System-audio input selection is currently available on macOS and Linux. Windows capture uses output-loopback device selection.
           </p>
         ) : (
           <>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
+            <p className="text-sm text-muted-foreground">
               Capture settings apply on the next recording start.
             </p>
 
@@ -183,7 +185,7 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
               <div>
                 <label
                   htmlFor="mac-system-audio-backend"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                  className="mb-2 block text-sm font-medium text-foreground"
                 >
                   Capture Backend
                 </label>
@@ -191,7 +193,7 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
                   id="mac-system-audio-backend"
                   value={macSystemAudioBackend}
                   onChange={(e) => setMacSystemAudioBackend(e.target.value as 'auto' | 'process_tap' | 'loopback')}
-                  className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
+                  className="w-full rounded-md border border-input bg-input-background px-3 py-2 text-sm text-foreground"
                 >
                   <option value="auto">Auto (Process Tap, then loopback fallback)</option>
                   <option value="process_tap">CoreAudio Process Tap (macOS 14.2+)</option>
@@ -203,7 +205,7 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
             <div>
               <label
                 htmlFor="mac-loopback-device"
-                className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                className="mb-2 block text-sm font-medium text-foreground"
               >
                 Preferred System Audio Input (Optional)
               </label>
@@ -211,7 +213,7 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
                 id="mac-loopback-device"
                 value={macSystemAudioDevice}
                 onChange={(e) => setMacSystemAudioDevice(e.target.value)}
-                className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100"
+                className="w-full rounded-md border border-input bg-input-background px-3 py-2 text-sm text-foreground"
                 disabled={devicesLoading}
               >
                 <option value="">Auto-detect best monitor/loopback input</option>
@@ -221,18 +223,18 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+              <p className="mt-2 text-xs text-muted-foreground">
                 {isMac
                   ? 'Choose a loopback input device if auto-detection is wrong.'
                   : 'Choose a PipeWire/Pulse monitor input device if auto-detection is wrong.'}
               </p>
               {devicesLoading && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                <p className="mt-2 text-xs text-muted-foreground">
                   Loading input devices...
                 </p>
               )}
               {devicesError && (
-                <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                <p className="text-xs text-destructive mt-2">
                   Failed to list devices: {devicesError}
                 </p>
               )}

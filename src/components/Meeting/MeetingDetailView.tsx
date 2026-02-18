@@ -76,7 +76,7 @@ export function MeetingDetailView() {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full min-h-0 flex flex-col">
       <MeetingHeader
         meeting={meeting}
         onBack={handleBack}
@@ -84,7 +84,7 @@ export function MeetingDetailView() {
       />
 
       {/* Audio Player */}
-      <div className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">
+      <div className="border-b border-border bg-card/50 px-4 py-3 md:px-6">
         <AudioPlayer
           ref={audioPlayerRef}
           micPath={meeting.audio_path_you}
@@ -99,7 +99,7 @@ export function MeetingDetailView() {
         onValueChange={setActiveTab}
         className="flex-1 flex flex-col min-h-0"
       >
-        <div className="px-6 py-2 border-b border-gray-200 dark:border-gray-700">
+        <div className="border-b border-border bg-card/30 px-4 py-2 md:px-6">
           <TabsList>
             <TabsTrigger value="transcript">Transcript</TabsTrigger>
             <TabsTrigger value="summary">Summary</TabsTrigger>
@@ -107,8 +107,8 @@ export function MeetingDetailView() {
           </TabsList>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          <TabsContent value="transcript" className="h-full">
+        <div className="flex-1 min-h-0">
+          <TabsContent value="transcript" className="h-full min-h-0">
             <TranscriptPanel
               meetingId={meeting.id}
               meetingStatus={meeting.status}
@@ -120,14 +120,14 @@ export function MeetingDetailView() {
             />
           </TabsContent>
 
-          <TabsContent value="summary" className="h-full">
+          <TabsContent value="summary" className="h-full min-h-0">
             <SummaryPanel
               meetingId={meeting.id}
               hasTranscript={transcript.length > 0}
             />
           </TabsContent>
 
-          <TabsContent value="notes" className="h-full">
+          <TabsContent value="notes" className="h-full min-h-0">
             <NotesPanel meetingId={meeting.id} />
           </TabsContent>
         </div>

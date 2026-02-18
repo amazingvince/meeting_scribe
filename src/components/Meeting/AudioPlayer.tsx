@@ -250,14 +250,14 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
     // No audio files available
     if (!micUrl && !systemUrl) {
       return (
-        <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 text-center text-gray-500 dark:text-gray-400">
+        <div className="rounded-lg border border-border bg-muted/50 p-4 text-center text-muted-foreground">
           No audio available for this meeting
         </div>
       );
     }
 
     return (
-      <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-4 space-y-3">
+      <div className="space-y-3 rounded-lg border border-border bg-muted/50 p-4">
         {/* Hidden audio elements */}
         {micUrl && (
           <audio
@@ -286,13 +286,13 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
           <button
             onClick={togglePlayPause}
             disabled={!isLoaded}
-            className="w-10 h-10 flex items-center justify-center rounded-full bg-indigo-500 hover:bg-indigo-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="h-10 w-10 rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 flex items-center justify-center"
           >
             {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
           </button>
 
           {/* Time display */}
-          <div className="text-sm font-mono text-gray-600 dark:text-gray-400 w-32 text-center">
+          <div className="w-32 text-center text-sm font-mono text-muted-foreground">
             {formatDuration(currentTime)} / {formatDuration(duration)}
           </div>
 
@@ -305,13 +305,13 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
               value={currentTime}
               onChange={handleSeek}
               disabled={!isLoaded}
-              className="w-full h-2 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer disabled:cursor-not-allowed
+              className="w-full h-2 appearance-none rounded-lg bg-muted cursor-pointer disabled:cursor-not-allowed
                 [&::-webkit-slider-thumb]:appearance-none
                 [&::-webkit-slider-thumb]:w-4
                 [&::-webkit-slider-thumb]:h-4
                 [&::-webkit-slider-thumb]:rounded-full
-                [&::-webkit-slider-thumb]:bg-indigo-500
-                [&::-webkit-slider-thumb]:hover:bg-indigo-600
+                [&::-webkit-slider-thumb]:bg-primary
+                [&::-webkit-slider-thumb]:hover:bg-primary/90
                 [&::-webkit-slider-thumb]:cursor-pointer"
             />
           </div>
@@ -320,7 +320,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
           <div className="flex items-center gap-2">
             <button
               onClick={toggleMute}
-              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              className="text-muted-foreground hover:text-foreground"
             >
               {isMuted || volume === 0 ? (
                 <VolumeX className="w-5 h-5" />
@@ -335,21 +335,21 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
               step={0.1}
               value={isMuted ? 0 : volume}
               onChange={handleVolumeChange}
-              className="w-20 h-1.5 bg-gray-300 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer
+              className="w-20 h-1.5 appearance-none rounded-lg bg-muted cursor-pointer
                 [&::-webkit-slider-thumb]:appearance-none
                 [&::-webkit-slider-thumb]:w-3
                 [&::-webkit-slider-thumb]:h-3
                 [&::-webkit-slider-thumb]:rounded-full
-                [&::-webkit-slider-thumb]:bg-gray-500
-                [&::-webkit-slider-thumb]:hover:bg-gray-600"
+                [&::-webkit-slider-thumb]:bg-muted-foreground
+                [&::-webkit-slider-thumb]:hover:bg-foreground"
             />
           </div>
         </div>
 
         {/* Track selector (only if both tracks available) */}
         {micUrl && systemUrl && (
-          <div className="flex items-center justify-center gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
-            <span className="text-xs text-gray-500 dark:text-gray-400">Track:</span>
+          <div className="flex items-center justify-center gap-2 border-t border-border pt-2">
+            <span className="text-xs text-muted-foreground">Track:</span>
             <div className="flex gap-1">
               {(['mic', 'system', 'both'] as const).map((track) => (
                 <button
@@ -371,8 +371,8 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
                     text-xs px-2 py-1 rounded transition-colors
                     ${
                       activeTrack === track
-                        ? 'bg-indigo-500 text-white'
-                        : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-300 dark:hover:bg-gray-600'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground hover:bg-accent hover:text-foreground'
                     }
                   `}
                 >

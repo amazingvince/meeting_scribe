@@ -1,8 +1,5 @@
-/**
- * Card component for content containers
- */
-
 import type { HTMLAttributes, ReactNode } from 'react';
+import { cn } from '../../lib/utils';
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
@@ -19,22 +16,20 @@ const paddingStyles = {
 
 export function Card({
   children,
-  className = '',
+  className,
   padding = 'md',
   hover = false,
   ...props
 }: CardProps) {
   return (
     <div
-      className={`
-        bg-white dark:bg-gray-800
-        rounded-lg
-        border border-gray-200 dark:border-gray-700
-        shadow-sm
-        ${paddingStyles[padding]}
-        ${hover ? 'hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-shadow cursor-pointer' : ''}
-        ${className}
-      `}
+      className={cn(
+        'rounded-xl border border-border bg-card text-card-foreground shadow-sm',
+        hover &&
+          'cursor-pointer transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md',
+        paddingStyles[padding],
+        className
+      )}
       {...props}
     >
       {children}
@@ -42,53 +37,56 @@ export function Card({
   );
 }
 
-interface CardHeaderProps {
+interface CardHeaderProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
-  className?: string;
 }
 
-export function CardHeader({ children, className = '' }: CardHeaderProps) {
+export function CardHeader({ children, className, ...props }: CardHeaderProps) {
   return (
     <div
-      className={`
-        border-b border-gray-200 dark:border-gray-700
-        -mx-4 -mt-4 px-4 py-3 mb-4
-        rounded-t-lg
-        bg-gray-50 dark:bg-gray-900/50
-        ${className}
-      `}
+      className={cn(
+        'mb-4 flex flex-col gap-1 border-b border-border pb-3',
+        className
+      )}
+      {...props}
     >
       {children}
     </div>
   );
 }
 
-interface CardTitleProps {
+interface CardTitleProps extends HTMLAttributes<HTMLHeadingElement> {
   children: ReactNode;
-  className?: string;
 }
 
-export function CardTitle({ children, className = '' }: CardTitleProps) {
+export function CardTitle({ children, className, ...props }: CardTitleProps) {
   return (
     <h3
-      className={`text-lg font-semibold text-gray-900 dark:text-gray-100 ${className}`}
+      className={cn(
+        'text-base font-semibold tracking-tight text-foreground',
+        className
+      )}
+      {...props}
     >
       {children}
     </h3>
   );
 }
 
-interface CardDescriptionProps {
+interface CardDescriptionProps extends HTMLAttributes<HTMLParagraphElement> {
   children: ReactNode;
-  className?: string;
 }
 
 export function CardDescription({
   children,
-  className = '',
+  className,
+  ...props
 }: CardDescriptionProps) {
   return (
-    <p className={`text-sm text-gray-500 dark:text-gray-400 ${className}`}>
+    <p
+      className={cn('text-sm text-muted-foreground', className)}
+      {...props}
+    >
       {children}
     </p>
   );

@@ -20,10 +20,13 @@ interface TimelineGroupProps {
 
 export function TimelineGroup({ label, children }: TimelineGroupProps) {
   return (
-    <div className="space-y-2">
-      <h2 className="text-sm font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-        {label}
-      </h2>
+    <div className="space-y-2.5">
+      <div className="flex items-center gap-3 px-1">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          {label}
+        </span>
+        <span className="h-px flex-1 bg-border" />
+      </div>
       <div className="space-y-2">{children}</div>
     </div>
   );

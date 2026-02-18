@@ -67,9 +67,9 @@ export function NotesPanel({ meetingId }: NotesPanelProps) {
   }, [meetingId, notes, toast]);
 
   return (
-    <div className="p-4 h-full flex flex-col">
+    <div className="h-full flex flex-col p-4 md:p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+        <h3 className="font-semibold text-foreground flex items-center gap-2">
           <FileText className="w-5 h-5 text-blue-500" />
           Notes
         </h3>
@@ -93,7 +93,7 @@ export function NotesPanel({ meetingId }: NotesPanelProps) {
             ? 'Loading notes...'
             : 'Add your notes about this meeting...'
         }
-        className="flex-1 min-h-[300px] resize-none"
+        className="flex-1 min-h-[280px] resize-none rounded-xl"
         disabled={isLoading}
       />
 

@@ -60,9 +60,9 @@ export function MeetingHeader({
   );
 
   return (
-    <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
-      <div className="flex items-center gap-4 mb-4">
-        <Button variant="ghost" size="icon" onClick={onBack}>
+    <div className="border-b border-border bg-card px-4 py-3 md:px-6">
+      <div className="mb-2 flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={onBack} className="h-8 w-8">
           <ArrowLeft className="w-5 h-5" />
         </Button>
 
@@ -72,7 +72,7 @@ export function MeetingHeader({
               value={editedTitle}
               onChange={(e) => setEditedTitle(e.target.value)}
               onKeyDown={handleKeyDown}
-              className="flex-1 text-xl font-bold"
+              className="flex-1 text-base font-semibold"
               autoFocus
             />
             <Button
@@ -80,19 +80,20 @@ export function MeetingHeader({
               size="icon"
               onClick={handleEditSave}
               isLoading={isSaving}
+              className="h-8 w-8"
             >
               <Check className="w-5 h-5 text-green-600" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={handleEditCancel}>
-              <X className="w-5 h-5 text-red-600" />
+            <Button variant="ghost" size="icon" onClick={handleEditCancel} className="h-8 w-8">
+              <X className="w-5 h-5 text-destructive" />
             </Button>
           </div>
         ) : (
           <div className="flex-1 flex items-center gap-2">
-            <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 truncate">
+            <h1 className="truncate text-base font-semibold text-foreground md:text-lg">
               {meeting.title}
             </h1>
-            <Button variant="ghost" size="icon" onClick={handleEditStart}>
+            <Button variant="ghost" size="icon" onClick={handleEditStart} className="h-8 w-8">
               <Edit2 className="w-4 h-4" />
             </Button>
           </div>
@@ -101,7 +102,7 @@ export function MeetingHeader({
         <StatusBadge status={meeting.status} />
       </div>
 
-      <div className="flex items-center gap-6 text-sm text-gray-500 dark:text-gray-400">
+      <div className="flex items-center gap-4 text-xs text-muted-foreground md:text-sm">
         <span className="flex items-center gap-2">
           <Calendar className="w-4 h-4" />
           {formatDate(new Date(meeting.created_at))} at{' '}

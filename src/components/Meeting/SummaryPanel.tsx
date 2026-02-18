@@ -172,7 +172,7 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
 
   if (!hasTranscript) {
     return (
-      <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+      <div className="p-4 text-center text-muted-foreground">
         <p>Generate a transcript first to create summaries.</p>
       </div>
     );
@@ -192,10 +192,10 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
   }
 
   return (
-    <div className="p-4 space-y-6">
+    <div className="no-scrollbar h-full overflow-y-auto p-4 md:p-5 space-y-5">
       {isAnyGenerationRunning && activeTaskMessage && (
-        <Card className="border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-900/10">
-          <div className="flex items-center gap-2 text-sm text-indigo-700 dark:text-indigo-300">
+        <Card className="bg-muted/50">
+          <div className="flex items-center gap-2 text-sm text-foreground">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span className="font-medium">{activeTaskMessage}</span>
           </div>
@@ -205,7 +205,7 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
       {/* Summary section */}
       <Card>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+          <h3 className="font-semibold text-foreground flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-indigo-500" />
             Summary
           </h3>
@@ -228,7 +228,7 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
         </div>
 
         {isLoadingSummary && summaryStatus && (
-          <p className="text-xs text-indigo-600 dark:text-indigo-400 mb-3">
+          <p className="text-xs text-muted-foreground mb-3">
             {summaryStatus}
           </p>
         )}
@@ -236,11 +236,11 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
         {isLoadingSummary ? (
           <SkeletonText lines={4} />
         ) : summary ? (
-          <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+          <p className="text-foreground/80 whitespace-pre-wrap">
             {summary}
           </p>
         ) : (
-          <p className="text-gray-500 dark:text-gray-400 text-sm">
+          <p className="text-muted-foreground text-sm">
             Click "Generate" to create an AI summary of this meeting.
           </p>
         )}
@@ -249,7 +249,7 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
       {/* Action items section */}
       <Card>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+          <h3 className="font-semibold text-foreground flex items-center gap-2">
             <ListChecks className="w-5 h-5 text-green-500" />
             Action Items
           </h3>
@@ -272,7 +272,7 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
         </div>
 
         {isLoadingActions && actionsStatus && (
-          <p className="text-xs text-indigo-600 dark:text-indigo-400 mb-3">
+          <p className="text-xs text-muted-foreground mb-3">
             {actionsStatus}
           </p>
         )}
@@ -291,16 +291,16 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
                         ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                         : item.priority === 'medium'
                           ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                          : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                          : 'bg-muted text-muted-foreground'
                     }
                   `}
                 >
                   {item.priority}
                 </span>
                 <div className="flex-1">
-                  <p className="text-gray-700 dark:text-gray-300">{item.task}</p>
+                  <p className="text-foreground/80">{item.task}</p>
                   {(item.owner || item.deadline) && (
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    <p className="text-sm text-muted-foreground mt-1">
                       {item.owner && <span>Owner: {item.owner}</span>}
                       {item.owner && item.deadline && <span> | </span>}
                       {item.deadline && <span>Due: {item.deadline}</span>}
@@ -311,7 +311,7 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
             ))}
           </ul>
         ) : (
-          <p className="text-gray-500 dark:text-gray-400 text-sm">
+          <p className="text-muted-foreground text-sm">
             Click "Extract" to find action items from this meeting.
           </p>
         )}

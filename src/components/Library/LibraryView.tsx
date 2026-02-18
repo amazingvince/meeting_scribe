@@ -4,7 +4,7 @@
 
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw, Sparkles } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { useMeetings } from '../../hooks';
 import { Button } from '../ui/Button';
 import { Modal, ModalFooter } from '../ui/Modal';
@@ -12,7 +12,6 @@ import { SkeletonMeetingCard } from '../ui/Skeleton';
 import { NoMeetingsEmpty, NoSearchResultsEmpty } from '../ui/EmptyState';
 import { MeetingCard } from './MeetingCard';
 import { MeetingSearch } from './MeetingSearch';
-import { ModelSelector } from './ModelSelector';
 import {
   TimelineGroup,
   groupMeetingsByDate,
@@ -75,70 +74,61 @@ export function LibraryView() {
   );
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 leading-tight">
-          Meeting Library
-        </h1>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => fetchMeetings()}
-          disabled={isLoading}
-        >
-          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-        </Button>
-      </div>
-
-      <div className="sticky top-0 z-20 -mx-2 px-2 py-2 bg-surface-50/95 dark:bg-surface-950/95 backdrop-blur border-b border-gray-200/70 dark:border-gray-800/70">
+      <header className="px-6 py-4 border-b border-border bg-card">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-foreground">Past Meetings</h2>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">
+              {searchQuery.trim().length > 0
+                ? `${meetings.length} result${meetings.length === 1 ? '' : 's'}`
+                : `${meetings.length} meeting${meetings.length === 1 ? '' : 's'}`}
+            </span>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => fetchMeetings()}
+              disabled={isLoading}
+              className="h-8 w-8"
+              aria-label="Refresh meetings"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
+        </div>
         <MeetingSearch
           value={searchQuery}
           onChange={search}
-          placeholder="Search transcript (hybrid keyword + semantic)..."
+          placeholder="Search meetings, transcripts..."
         />
-        <div className="mt-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
-          <span className="inline-flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5" />
-            Hybrid transcript search
-          </span>
-          {searchQuery.trim().length > 0 && (
-            <span>{meetings.length} result{meetings.length === 1 ? '' : 's'}</span>
-          )}
-        </div>
-      </div>
+      </header>
 
-      {/* Model Selector */}
-      <ModelSelector />
-
-      {/* Error state */}
       {error && (
-        <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400">
-          {error}
+        <div className="border-b border-destructive/30 bg-destructive/5 px-6 py-2">
+          <p className="text-sm text-destructive">{error}</p>
         </div>
       )}
 
-      {/* Loading state */}
-      {isLoading && !hasMeetings && (
-        <div className="space-y-3">
-          <SkeletonMeetingCard />
-          <SkeletonMeetingCard />
-          <SkeletonMeetingCard />
-        </div>
-      )}
+      {/* Meeting list */}
+      <div className="no-scrollbar flex-1 min-h-0 overflow-y-auto">
+        <div className="p-4 pb-20 md:pb-4 space-y-1">
+          {isLoading && !hasMeetings && (
+            <div className="space-y-3 p-2">
+              <SkeletonMeetingCard />
+              <SkeletonMeetingCard />
+              <SkeletonMeetingCard />
+            </div>
+          )}
 
-      {/* Empty states */}
-      {!isLoading && !hasMeetings && !searchQuery && (
-        <NoMeetingsEmpty onRecord={handleStartRecording} />
-      )}
+          {!isLoading && !hasMeetings && !searchQuery && (
+            <NoMeetingsEmpty onRecord={handleStartRecording} />
+          )}
 
-      {!isLoading && !hasResults && searchQuery && <NoSearchResultsEmpty />}
+          {!isLoading && !hasResults && searchQuery && <NoSearchResultsEmpty />}
 
-      {/* Meeting list grouped by date */}
-      {hasResults && (
-        <div className="space-y-6">
-          {(Object.keys(groupLabels) as Array<keyof GroupedMeetings>).map(
-            (key) => {
+          {hasResults &&
+            (Object.keys(groupLabels) as Array<keyof GroupedMeetings>).map((key) => {
               const group = groupedMeetings[key];
               if (group.length === 0) return null;
 
@@ -156,19 +146,17 @@ export function LibraryView() {
                   ))}
                 </TimelineGroup>
               );
-            }
-          )}
+            })}
         </div>
-      )}
+      </div>
 
-      {/* Delete confirmation modal */}
       <Modal
         isOpen={!!deleteTarget}
         onClose={handleCancelDelete}
         title="Delete Meeting"
         size="sm"
       >
-        <p className="text-gray-600 dark:text-gray-400">
+        <p className="text-muted-foreground">
           Are you sure you want to delete "{deleteTarget?.title}"? This action
           cannot be undone.
         </p>
@@ -177,7 +165,7 @@ export function LibraryView() {
             Cancel
           </Button>
           <Button
-            variant="danger"
+            variant="destructive"
             onClick={handleConfirmDelete}
             isLoading={isDeleting}
           >

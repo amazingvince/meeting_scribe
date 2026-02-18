@@ -1,10 +1,8 @@
-/**
- * Modal dialog component
- */
-
 import { useEffect, type ReactNode } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
 import { Button } from './Button';
+import { cn } from '../../lib/utils';
 
 interface ModalProps {
   isOpen: boolean;
@@ -48,47 +46,56 @@ export function Modal({
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div
-        className="fixed inset-0 bg-black/50 transition-opacity"
-        onClick={onClose}
-      />
-      <div className="flex min-h-full items-center justify-center p-4">
-        <div
-          className={`
-            relative w-full ${sizeStyles[size]}
-            bg-white dark:bg-gray-800
-            rounded-xl shadow-xl
-            transform transition-all
-          `}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {(title || showClose) && (
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-              {title && (
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                  {title}
-                </h2>
+    <AnimatePresence initial={false}>
+      {isOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto">
+          <motion.div
+            className="fixed inset-0 bg-black/55 backdrop-blur-[2px]"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.1 }}
+            onClick={onClose}
+          />
+
+          <div className="flex min-h-full items-center justify-center p-4">
+            <motion.div
+              className={cn(
+                'relative w-full rounded-xl border border-border bg-card shadow-2xl',
+                sizeStyles[size]
               )}
-              {showClose && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={onClose}
-                  className="ml-auto"
-                >
-                  <X className="w-5 h-5" />
-                </Button>
+              initial={{ opacity: 0, y: 10, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 6, scale: 0.985 }}
+              transition={{ duration: 0.12, ease: [0.22, 1, 0.36, 1] }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {(title || showClose) && (
+                <div className="flex items-center justify-between border-b border-border px-6 py-4">
+                  {title && (
+                    <h2 className="text-lg font-semibold text-foreground">
+                      {title}
+                    </h2>
+                  )}
+                  {showClose && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={onClose}
+                      className="ml-auto"
+                    >
+                      <X className="h-5 w-5" />
+                    </Button>
+                  )}
+                </div>
               )}
-            </div>
-          )}
-          <div className="px-6 py-4">{children}</div>
+              <div className="px-6 py-4">{children}</div>
+            </motion.div>
+          </div>
         </div>
-      </div>
-    </div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -97,17 +104,13 @@ interface ModalFooterProps {
   className?: string;
 }
 
-export function ModalFooter({ children, className = '' }: ModalFooterProps) {
+export function ModalFooter({ children, className }: ModalFooterProps) {
   return (
     <div
-      className={`
-        flex items-center justify-end gap-3
-        -mx-6 -mb-4 px-6 py-4 mt-4
-        border-t border-gray-200 dark:border-gray-700
-        bg-gray-50 dark:bg-gray-900/50
-        rounded-b-xl
-        ${className}
-      `}
+      className={cn(
+        '-mx-6 -mb-4 mt-4 flex items-center justify-end gap-3 rounded-b-xl border-t border-border bg-muted/50 px-6 py-4',
+        className
+      )}
     >
       {children}
     </div>

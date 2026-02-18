@@ -177,13 +177,13 @@ export function Waveform({
   return (
     <div className="flex flex-col gap-1">
       {label && (
-        <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
+        <span className="text-xs text-muted-foreground font-medium">
           {label}
         </span>
       )}
       <canvas
         ref={canvasRef}
-        className="w-full rounded bg-gray-50 dark:bg-gray-800/50"
+        className="w-full rounded bg-muted/50"
         style={{ height }}
       />
     </div>

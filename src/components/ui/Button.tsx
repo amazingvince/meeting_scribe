@@ -1,41 +1,55 @@
-/**
- * Button component with variants
- */
-
 import { forwardRef, type ButtonHTMLAttributes } from 'react';
+import { cva, type VariantProps } from 'class-variance-authority';
 import { Loader2 } from 'lucide-react';
+import { cn } from '../../lib/utils';
 
-export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'outline';
-  size?: 'sm' | 'md' | 'lg' | 'icon';
+const buttonVariants = cva(
+  [
+    'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md',
+    'text-sm font-medium transition-all duration-150 active:scale-[0.985] focus-visible:outline-none focus-visible:ring-2',
+    'focus-visible:ring-ring focus-visible:ring-offset-2',
+    'disabled:pointer-events-none disabled:opacity-50',
+  ],
+  {
+    variants: {
+      variant: {
+        default:
+          'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90',
+        secondary:
+          'bg-secondary text-secondary-foreground shadow-sm hover:bg-accent',
+        destructive:
+          'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90',
+        ghost: 'text-muted-foreground hover:bg-accent hover:text-foreground',
+        outline:
+          'border border-border bg-transparent text-foreground hover:bg-accent',
+        link: 'text-primary underline-offset-4 hover:underline',
+      },
+      size: {
+        sm: 'h-8 px-3 text-xs',
+        md: 'h-10 px-4 py-2',
+        lg: 'h-11 px-6 text-base',
+        icon: 'h-10 w-10',
+      },
+    },
+    defaultVariants: {
+      variant: 'default',
+      size: 'md',
+    },
+  }
+);
+
+export interface ButtonProps
+  extends ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
   isLoading?: boolean;
 }
-
-const variantStyles = {
-  primary:
-    'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500',
-  secondary:
-    'bg-gray-100 text-gray-900 hover:bg-gray-200 focus:ring-gray-500 dark:bg-gray-700 dark:text-gray-100 dark:hover:bg-gray-600',
-  danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
-  ghost:
-    'bg-transparent text-gray-700 hover:bg-gray-100 focus:ring-gray-500 dark:text-gray-300 dark:hover:bg-gray-800',
-  outline:
-    'bg-transparent border border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-gray-500 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800',
-};
-
-const sizeStyles = {
-  sm: 'px-3 py-1.5 text-sm',
-  md: 'px-4 py-2 text-sm',
-  lg: 'px-6 py-3 text-base',
-  icon: 'p-2',
-};
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
   (
     {
-      className = '',
-      variant = 'primary',
-      size = 'md',
+      className,
+      variant,
+      size,
       isLoading = false,
       disabled,
       children,
@@ -46,20 +60,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         ref={ref}
-        className={`
-          inline-flex items-center justify-center gap-2
-          font-medium rounded-lg
-          focus:outline-none focus:ring-2 focus:ring-offset-2
-          transition-colors duration-150
-          disabled:opacity-50 disabled:cursor-not-allowed
-          ${variantStyles[variant]}
-          ${sizeStyles[size]}
-          ${className}
-        `}
+        className={cn(buttonVariants({ variant, size }), className)}
         disabled={disabled || isLoading}
         {...props}
       >
-        {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+        {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
         {children}
       </button>
     );

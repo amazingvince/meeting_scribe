@@ -5,6 +5,7 @@
 import { Cpu, MessageSquare, Search, Database, Loader2 } from 'lucide-react';
 import { Card, CardTitle } from '../ui/Card';
 import { ProgressBar } from '../ui/Progress';
+import { Button } from '../ui/Button';
 import { SkeletonCard } from '../ui/Skeleton';
 import { ModelDownloadCard } from './ModelDownloadCard';
 import { useModels } from '../../hooks';
@@ -140,29 +141,29 @@ export function ModelSettings() {
   return (
     <div className="space-y-6">
       {isDownloading && downloadingModel && (
-        <Card className="border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-900/10">
+        <Card className="bg-muted/50">
           <div className="flex items-start gap-3">
-            <Loader2 className="w-5 h-5 mt-0.5 text-indigo-600 animate-spin" />
+            <Loader2 className="w-5 h-5 mt-0.5 text-primary animate-spin" />
             <div className="flex-1 min-w-0 space-y-2">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium text-indigo-900 dark:text-indigo-200">
+                <p className="text-sm font-medium text-foreground">
                   Downloading {getDownloadLabel(downloadingModel)}
                 </p>
-                <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+                <span className="text-sm font-semibold text-primary">
                   {Math.round(downloadProgress)}%
                 </span>
               </div>
-              <p className="text-xs text-indigo-700 dark:text-indigo-300">
+              <p className="text-xs text-muted-foreground">
                 {downloadMessage ?? 'Downloading model files...'}
               </p>
               <ProgressBar
                 value={downloadProgress}
                 size="sm"
-                color="indigo"
+                color="blue"
                 label={formatDownloadStage(downloadStage)}
               />
               {(transferSummary || speedSummary || etaSummary || downloadFile || downloadSourceModelId) && (
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-indigo-700 dark:text-indigo-300">
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                   {transferSummary && <span>{transferSummary}</span>}
                   {speedSummary && <span>{speedSummary}</span>}
                   {etaSummary && <span>{etaSummary}</span>}
@@ -178,7 +179,9 @@ export function ModelSettings() {
       {/* Transcription Models */}
       <Card>
         <div className="flex items-center gap-2 mb-4">
-          <Cpu className="w-5 h-5 text-indigo-500" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/70">
+            <Cpu className="w-5 h-5 text-muted-foreground" />
+          </div>
           <CardTitle>Transcription Model</CardTitle>
         </div>
 
@@ -209,7 +212,9 @@ export function ModelSettings() {
       {/* LLM Models */}
       <Card>
         <div className="flex items-center gap-2 mb-4">
-          <MessageSquare className="w-5 h-5 text-green-500" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/70">
+            <MessageSquare className="w-5 h-5 text-muted-foreground" />
+          </div>
           <CardTitle>Language Models</CardTitle>
         </div>
 
@@ -246,7 +251,7 @@ export function ModelSettings() {
         </div>
 
         {llmStatus?.loaded && (
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
+          <p className="mt-4 text-sm text-muted-foreground">
             Currently loaded: {llmStatus.current_model}
           </p>
         )}
@@ -255,7 +260,9 @@ export function ModelSettings() {
       {/* Embedding Model */}
       <Card>
         <div className="flex items-center gap-2 mb-4">
-          <Search className="w-5 h-5 text-blue-500" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/70">
+            <Search className="w-5 h-5 text-muted-foreground" />
+          </div>
           <CardTitle>Embedding Model</CardTitle>
         </div>
 
@@ -283,8 +290,8 @@ export function ModelSettings() {
         />
 
         {embeddingInfo && embeddingDownloaded && (
-          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <div className="space-y-1 text-xs text-gray-500 dark:text-gray-400">
+          <div className="mt-4 border-t border-border pt-4">
+            <div className="space-y-1 text-xs text-muted-foreground">
               <div className="flex justify-between">
                 <span>Dimension</span>
                 <span>{embeddingInfo.dimension}</span>
@@ -301,23 +308,25 @@ export function ModelSettings() {
       {/* Embedding Index */}
       <Card>
         <div className="flex items-center gap-2 mb-4">
-          <Database className="w-5 h-5 text-purple-500" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/70">
+            <Database className="w-5 h-5 text-muted-foreground" />
+          </div>
           <CardTitle>Embedding Index</CardTitle>
         </div>
 
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+        <p className="mb-4 text-sm text-muted-foreground">
           Process meeting transcripts to build the semantic search index for RAG chat.
         </p>
 
         {isBatchEmbedding && batchEmbedProgress ? (
           <div className="space-y-2">
-            <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin" />
               <span>
                 Processing {batchEmbedProgress.current + 1} of {batchEmbedProgress.total}
               </span>
             </div>
-            <p className="text-xs text-gray-500 truncate">
+            <p className="truncate text-xs text-muted-foreground">
               {batchEmbedProgress.currentMeeting}
             </p>
             <ProgressBar
@@ -329,7 +338,7 @@ export function ModelSettings() {
             />
           </div>
         ) : (
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm">
               {unembeddedCount > 0 ? (
                 <span className="text-amber-600 dark:text-amber-400">
@@ -341,17 +350,18 @@ export function ModelSettings() {
                 </span>
               )}
             </div>
-            <button
+            <Button
               onClick={batchEmbedMeetings}
               disabled={!embeddingReady || unembeddedCount === 0 || isBatchEmbedding}
-              className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              variant="secondary"
+              size="sm"
             >
               {!embeddingReady
                 ? 'Load Model First'
                 : unembeddedCount === 0
                   ? 'All Indexed'
                   : `Index ${unembeddedCount} Meeting${unembeddedCount !== 1 ? 's' : ''}`}
-            </button>
+            </Button>
           </div>
         )}
       </Card>

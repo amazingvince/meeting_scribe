@@ -84,7 +84,7 @@ export function MeetingSelector({ selectedIds, onSelect }: MeetingSelectorProps)
 
   if (isLoading) {
     return (
-      <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
+      <div className="px-4 py-2 text-sm text-muted-foreground">
         Loading meetings...
       </div>
     );
@@ -92,7 +92,7 @@ export function MeetingSelector({ selectedIds, onSelect }: MeetingSelectorProps)
 
   if (error) {
     return (
-      <div className="px-4 py-2 text-sm text-red-600 dark:text-red-400">
+      <div className="px-4 py-2 text-sm text-destructive">
         Failed to load meetings: {error}
       </div>
     );
@@ -100,7 +100,7 @@ export function MeetingSelector({ selectedIds, onSelect }: MeetingSelectorProps)
 
   if (readyMeetings.length === 0) {
     return (
-      <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
+      <div className="px-4 py-2 text-sm text-muted-foreground">
         No meetings available. Record a meeting first.
       </div>
     );
@@ -110,7 +110,7 @@ export function MeetingSelector({ selectedIds, onSelect }: MeetingSelectorProps)
     <div className="space-y-2">
       {/* Header */}
       <div className="flex items-center justify-between px-2">
-        <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           Filter by meeting
         </span>
         {selectedIds.length > 0 && (
@@ -148,7 +148,7 @@ export function MeetingSelector({ selectedIds, onSelect }: MeetingSelectorProps)
       )}
 
       {/* Meeting list */}
-      <div className="max-h-48 overflow-y-auto px-2 space-y-1">
+      <div className="no-scrollbar max-h-48 overflow-y-auto px-2 space-y-1">
         {readyMeetings.map((meeting) => (
           <MeetingItem
             key={meeting.id}
@@ -161,7 +161,7 @@ export function MeetingSelector({ selectedIds, onSelect }: MeetingSelectorProps)
 
       {/* Info text */}
       {selectedIds.length === 0 && (
-        <p className="px-2 text-xs text-gray-400 dark:text-gray-500">
+        <p className="px-2 text-xs text-muted-foreground">
           Select meetings to search within, or search all meetings.
         </p>
       )}
@@ -182,7 +182,7 @@ function MeetingItem({ meeting, selected, onToggle }: MeetingItemProps) {
       className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
         selected
           ? 'bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700'
-          : 'hover:bg-gray-100 dark:hover:bg-gray-800 border border-transparent'
+          : 'hover:bg-accent border border-transparent'
       }`}
     >
       {/* Checkbox indicator */}
@@ -190,7 +190,7 @@ function MeetingItem({ meeting, selected, onToggle }: MeetingItemProps) {
         className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
           selected
             ? 'bg-indigo-600 border-indigo-600 text-white'
-            : 'border-gray-300 dark:border-gray-600'
+            : 'border-border'
         }`}
       >
         {selected && <Check className="w-3 h-3" />}
@@ -198,10 +198,10 @@ function MeetingItem({ meeting, selected, onToggle }: MeetingItemProps) {
 
       {/* Meeting info */}
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+        <div className="text-sm font-medium text-foreground truncate">
           {meeting.title}
         </div>
-        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="flex items-center gap-0.5">
             <Calendar className="w-3 h-3" />
             {formatRelativeTime(meeting.created_at)}

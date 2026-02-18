@@ -109,14 +109,14 @@ export function ModelDownloadCard({
     <div
       className={`p-4 border rounded-lg ${
         error
-          ? 'border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/10'
-          : 'border-gray-200 dark:border-gray-700'
+          ? 'border-destructive/50 bg-destructive/5'
+          : 'border-border'
       }`}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <h3 className="font-medium text-gray-900 dark:text-gray-100">
+            <h3 className="font-medium text-foreground">
               {name}
             </h3>
             {downloaded && !isLoaded && (
@@ -138,10 +138,10 @@ export function ModelDownloadCard({
               </Badge>
             )}
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p className="mt-1 text-sm text-muted-foreground">
             {description}
           </p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+          <p className="mt-1 text-xs text-muted-foreground/70">
             Size: {size}
           </p>
           {downloaded && onSetDefault && (
@@ -150,9 +150,9 @@ export function ModelDownloadCard({
                 type="radio"
                 checked={isDefault}
                 onChange={onSetDefault}
-                className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700"
+                className="h-4 w-4 border-border text-primary focus:ring-ring"
               />
-              <span className="text-sm text-gray-600 dark:text-gray-400">
+              <span className="text-sm text-muted-foreground">
                 Default
               </span>
             </label>
@@ -162,12 +162,11 @@ export function ModelDownloadCard({
         <div className="flex items-center gap-2">
           {downloaded && onDelete && !isLoaded && (
             <Button variant="ghost" size="icon" onClick={onDelete}>
-              <Trash2 className="w-4 h-4 text-red-500" />
+              <Trash2 className="w-4 h-4 text-destructive" />
             </Button>
           )}
           {downloaded && onLoad && !isLoaded && !error && (
             <Button
-              variant="primary"
               size="sm"
               onClick={onLoad}
               disabled={isLoadingModel}
@@ -212,11 +211,11 @@ export function ModelDownloadCard({
             showLabel
             size="sm"
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-muted-foreground">
             {downloadDetails?.message ?? 'Downloading model files...'}
           </p>
           {(downloadDetails?.file || transferSummary || speedSummary || etaSummary) && (
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
               {downloadDetails?.file && <span>File: {downloadDetails.file}</span>}
               {transferSummary && <span>{transferSummary}</span>}
               {speedSummary && <span>{speedSummary}</span>}
@@ -227,7 +226,7 @@ export function ModelDownloadCard({
       )}
 
       {error && (
-        <div className="mt-3 text-sm text-red-600 dark:text-red-400 flex items-start gap-2">
+        <div className="mt-3 text-sm text-destructive flex items-start gap-2">
           <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
           <span>{error}</span>
         </div>

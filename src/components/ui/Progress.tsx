@@ -40,18 +40,18 @@ export function ProgressBar({
     <div className="w-full">
       {(showLabel || label) && (
         <div className="flex justify-between mb-1">
-          <span className="text-sm text-gray-600 dark:text-gray-400">
+          <span className="text-sm text-muted-foreground">
             {label}
           </span>
           {showLabel && (
-            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            <span className="text-sm font-medium text-foreground">
               {Math.round(percentage)}%
             </span>
           )}
         </div>
       )}
       <div
-        className={`w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden ${sizeStyles[size]}`}
+        className={`w-full bg-muted rounded-full overflow-hidden ${sizeStyles[size]}`}
       >
         <div
           className={`${colorStyles[color]} ${sizeStyles[size]} rounded-full transition-all duration-300 ease-out`}
@@ -76,7 +76,7 @@ const spinnerSizes = {
 export function Spinner({ size = 'md', className = '' }: SpinnerProps) {
   return (
     <Loader2
-      className={`animate-spin text-indigo-600 ${spinnerSizes[size]} ${className}`}
+      className={`animate-spin text-primary ${spinnerSizes[size]} ${className}`}
     />
   );
 }
@@ -87,11 +87,11 @@ interface LoadingOverlayProps {
 
 export function LoadingOverlay({ message }: LoadingOverlayProps) {
   return (
-    <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 flex items-center justify-center z-10">
+    <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-10">
       <div className="flex flex-col items-center gap-3">
         <Spinner size="lg" />
         {message && (
-          <p className="text-sm text-gray-600 dark:text-gray-400">{message}</p>
+          <p className="text-sm text-muted-foreground">{message}</p>
         )}
       </div>
     </div>

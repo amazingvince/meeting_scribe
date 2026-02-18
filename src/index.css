@@ -1,11 +1,66 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Base styles */
 @layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  :root {
+    --background: 244 247 251;
+    --foreground: 15 23 42;
+    --card: 255 255 255;
+    --card-foreground: 15 23 42;
+    --primary: 3 2 19;
+    --primary-foreground: 255 255 255;
+    --secondary: 241 245 249;
+    --secondary-foreground: 15 23 42;
+    --muted: 236 236 240;
+    --muted-foreground: 113 113 130;
+    --accent: 233 235 239;
+    --accent-foreground: 15 23 42;
+    --destructive: 212 24 61;
+    --destructive-foreground: 255 255 255;
+    --border: rgba(0, 0, 0, 0.1);
+    --input: rgba(0, 0, 0, 0.1);
+    --input-background: 243 243 245;
+    --ring: 3 2 19;
+    --radius: 0.625rem;
+  }
+
+  .dark {
+    --background: 8 11 17;
+    --foreground: 226 232 240;
+    --card: 15 23 42;
+    --card-foreground: 226 232 240;
+    --primary: 255 255 255;
+    --primary-foreground: 3 2 19;
+    --secondary: 30 41 59;
+    --secondary-foreground: 226 232 240;
+    --muted: 30 41 59;
+    --muted-foreground: 148 163 184;
+    --accent: 30 41 59;
+    --accent-foreground: 226 232 240;
+    --destructive: 212 24 61;
+    --destructive-foreground: 255 255 255;
+    --border: rgba(255, 255, 255, 0.1);
+    --input: rgba(255, 255, 255, 0.1);
+    --input-background: 26 31 46;
+    --ring: 226 232 240;
+  }
+
   body {
-    @apply bg-surface-50 text-gray-900 dark:bg-surface-950 dark:text-gray-100;
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    background-color: rgb(var(--background));
+    color: rgb(var(--foreground));
   }
 
   /* Custom scrollbar */
@@ -18,25 +73,34 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-gray-300 dark:bg-gray-700 rounded-full;
+    @apply rounded-full;
+    background-color: rgb(var(--muted-foreground) / 0.3);
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }
 
-/* Utility classes */
 @layer components {
   .btn {
     @apply px-4 py-2 rounded-lg font-medium transition-colors duration-200;
   }
 
   .btn-primary {
-    @apply bg-primary-600 text-white hover:bg-primary-700;
+    @apply bg-primary text-primary-foreground hover:bg-primary/90;
   }
 
   .btn-secondary {
-    @apply bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
+    @apply bg-secondary text-secondary-foreground hover:bg-accent;
   }
 
   .card {
-    @apply bg-white dark:bg-surface-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700;
+    @apply bg-card rounded-xl shadow-sm border border-border;
   }
 }

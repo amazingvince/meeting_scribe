@@ -6,6 +6,7 @@ import { Waveform } from "./Waveform";
 import { formatDuration } from "../../utils/format";
 import * as api from "../../lib/tauri";
 import { useSettingsStore, useToastStore } from "../../stores";
+import { Button } from "../ui/Button";
 import type {
   LiveTranscriptSegment,
   MeetingProcessingFinishedEvent,
@@ -566,190 +567,219 @@ export function RecordingView() {
     }
   }, [settings, toast]);
   const transcriptLines = livePreviewSegments;
+  const micStreaming = isRecording && micMetrics.rms > 0.008;
+  const systemStreaming = isRecording && systemMetrics.rms > 0.008;
 
   return (
-    <div className="h-full min-h-0 flex flex-col gap-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Live Meeting Notepad</h1>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Notes stay visible; live transcript appears when enabled.
-          </p>
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-card">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            {isRecording && (
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+              </span>
+            )}
+            <h2 className="text-foreground">
+              {isRecording ? "Recording" : "Ready"}
+            </h2>
+          </div>
+          <div className="flex items-center gap-3 text-muted-foreground">
+            <span className="text-sm tabular-nums font-mono">{formatDuration(durationMs)}</span>
+          </div>
         </div>
-        {!settings.liveTranscriptionEnabled && (
-          <button onClick={handleEnableLivePreview} className="btn btn-secondary text-xs px-3 py-1.5">
-            Enable Live Transcript
-          </button>
-        )}
-      </div>
+
+        <div className="flex items-center gap-2">
+          {!settings.liveTranscriptionEnabled && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleEnableLivePreview}
+              className="text-muted-foreground"
+            >
+              Enable Live Transcript
+            </Button>
+          )}
+          {!isRecording ? (
+            <Button
+              onClick={handleStartRecording}
+              disabled={isLoading}
+              size="sm"
+              className="gap-2"
+            >
+              {isLoading ? (
+                <>
+                  <span className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-white" />
+                  Start Meeting
+                </>
+              )}
+            </Button>
+          ) : (
+            <Button
+              onClick={handleStopRecording}
+              disabled={isLoading}
+              variant="destructive"
+              size="sm"
+              className="gap-2"
+            >
+              {isLoading ? (
+                <>
+                  <span className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  Stopping...
+                </>
+              ) : (
+                <>
+                  <span className="h-2 w-2 rounded-sm bg-white" />
+                  Stop
+                </>
+              )}
+            </Button>
+          )}
+        </div>
+      </header>
 
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-700 dark:text-red-300">
+        <div className="border-b border-red-200 bg-red-50 px-6 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300">
           {error}
         </div>
       )}
 
       {backgroundProcessing && !isRecording && (
-        <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-4">
-          <div className="flex items-center justify-between text-sm text-indigo-700 dark:text-indigo-300">
+        <div className="border-b border-indigo-200 bg-indigo-50/90 px-6 py-2.5 dark:border-indigo-800 dark:bg-indigo-900/20">
+          <div className="flex items-center justify-between text-xs text-indigo-700 dark:text-indigo-300">
             <span className="font-medium">{getStageLabel(backgroundProcessing.stage)}</span>
             <span>{Math.round(backgroundProcessing.percent)}%</span>
           </div>
-          <div className="mt-2 h-2 bg-indigo-100 dark:bg-indigo-900/40 rounded-full overflow-hidden">
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-900/40">
             <div
               className="h-full bg-indigo-500 transition-all duration-300"
               style={{ width: `${Math.min(100, Math.max(0, backgroundProcessing.percent))}%` }}
             />
           </div>
-          <p className="mt-2 text-xs text-indigo-600 dark:text-indigo-400">
+          <p className="mt-1.5 text-[11px] text-indigo-600 dark:text-indigo-400">
             {backgroundProcessing.message || "Transcript is processing in the background."}
           </p>
         </div>
       )}
 
-      <section className="rounded-xl border border-sky-100 dark:border-slate-700 bg-gradient-to-br from-white via-sky-50/35 to-emerald-50/20 dark:from-surface-900 dark:via-surface-900 dark:to-surface-900 p-3 shadow-sm">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <div className="text-3xl font-mono font-semibold tabular-nums text-slate-900 dark:text-slate-100">
-              {formatDuration(durationMs)}
-            </div>
-            <div className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-              {isRecording ? "Recording in progress" : "Ready for next meeting"}
-            </div>
+      {/* Audio meters */}
+      <div className="flex items-center gap-3 px-6 py-3 border-b border-border bg-card/50">
+        <div className="flex-1 flex items-center gap-2">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-[80px]">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                micStreaming ? 'bg-emerald-500' : 'bg-muted-foreground/50'
+              }`}
+            />
+            Mic {micStreaming ? '' : '(idle)'}
           </div>
-
-          <div className="flex items-center gap-3">
-            {!isRecording ? (
-              <button
-                onClick={handleStartRecording}
-                disabled={isLoading}
-                className="btn btn-primary text-sm px-5 py-2.5 flex items-center gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Starting...
-                  </>
-                ) : (
-                  <>
-                    <span className="w-2.5 h-2.5 rounded-full bg-white" />
-                    Start Meeting
-                  </>
-                )}
-              </button>
-            ) : (
-              <button
-                onClick={handleStopRecording}
-                disabled={isLoading}
-                className="btn bg-red-500 hover:bg-red-600 text-white text-sm px-5 py-2.5 flex items-center gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Stopping...
-                  </>
-                ) : (
-                  <>
-                    <span className="w-2.5 h-2.5 rounded-sm bg-white" />
-                    Stop Meeting
-                  </>
-                )}
-              </button>
-            )}
+          <div className="flex-1">
+            <Waveform
+              samples={micMetrics.samples}
+              rms={micMetrics.rms}
+              color="#3b82f6"
+              height={20}
+            />
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 mt-2.5">
-          <Waveform
-            samples={micMetrics.samples}
-            rms={micMetrics.rms}
-            color="#3b82f6"
-            label="You (Microphone)"
-            height={46}
-          />
-          <Waveform
-            samples={systemMetrics.samples}
-            rms={systemMetrics.rms}
-            color="#10b981"
-            label="Others (System Audio)"
-            height={46}
-          />
+        <div className="flex-1 flex items-center gap-2">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-[80px]">
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${
+                systemStreaming ? 'bg-emerald-500' : 'bg-muted-foreground/50'
+              }`}
+            />
+            System {systemStreaming ? '' : '(idle)'}
+          </div>
+          <div className="flex-1">
+            <Waveform
+              samples={systemMetrics.samples}
+              rms={systemMetrics.rms}
+              color="#10b981"
+              height={20}
+            />
+          </div>
         </div>
-      </section>
+      </div>
 
-      <div
-        className={`grid flex-1 min-h-0 gap-4 ${
-          settings.liveTranscriptionEnabled ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'
-        }`}
-      >
+      {/* Main content area */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Transcript Panel */}
         {settings.liveTranscriptionEnabled && (
-          <section className="card min-h-0 p-0 overflow-hidden flex flex-col">
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-indigo-500" />
-              <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Live Transcript</h2>
+          <div className="flex-1 flex flex-col border-r border-border min-w-0">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-card/50">
+              <div className="flex items-center gap-2">
+                <FileText className="w-3.5 h-3.5 text-indigo-500" />
+                <span className="text-sm text-muted-foreground">Live Transcript</span>
+              </div>
+              <span className="text-[11px] text-muted-foreground/60">
+                Every {settings.liveTranscriptionIntervalSec}s
+              </span>
             </div>
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              {settings.liveTranscriptionEnabled
-                ? `Every ${settings.liveTranscriptionIntervalSec}s`
-                : "Disabled"}
-            </span>
-          </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3 bg-white/50 dark:bg-surface-900/20">
-            {!isRecording ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">Start recording to see live transcript context here.</p>
-            ) : !settings.transcriptionReady ? (
-              <p className="text-sm text-amber-700 dark:text-amber-300">
-                Load a transcription model to show live transcript updates.
-              </p>
-            ) : livePreviewError ? (
-              <p className="text-sm text-red-600 dark:text-red-300">{livePreviewError}</p>
-            ) : transcriptLines.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Listening and building transcript context...
-              </p>
-            ) : (
-              transcriptLines.map((segment, index) => (
-                <div key={`${segment.start_ms}-${index}`} className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2">
-                  <div className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                    {formatDuration(segment.start_ms)} • {segment.speaker}
+            <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
+              {!isRecording ? (
+                <p className="text-sm text-muted-foreground">Start recording to see live transcript here.</p>
+              ) : !settings.transcriptionReady ? (
+                <p className="text-sm text-amber-700 dark:text-amber-300">
+                  Load a transcription model to show live transcript updates.
+                </p>
+              ) : livePreviewError ? (
+                <p className="text-sm text-red-600 dark:text-red-300">{livePreviewError}</p>
+              ) : transcriptLines.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Listening and building transcript context...
+                </p>
+              ) : (
+                transcriptLines.map((segment, index) => (
+                  <div key={`${segment.start_ms}-${index}`} className="flex gap-3">
+                    <span className="text-[11px] text-muted-foreground/60 tabular-nums pt-0.5 min-w-[52px]">
+                      {formatDuration(segment.start_ms)}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm text-muted-foreground">{segment.speaker}</span>
+                      <p className="text-sm text-foreground/90 mt-0.5 leading-relaxed">{segment.text}</p>
+                    </div>
                   </div>
-                  <div className="text-sm text-gray-800 dark:text-gray-200 mt-0.5">{segment.text}</div>
-                </div>
-              ))
-            )}
+                ))
+              )}
+            </div>
           </div>
-          </section>
         )}
 
-        <section className="card min-h-0 p-0 overflow-hidden flex flex-col">
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        {/* Notes Panel */}
+        <div className={`flex flex-col bg-card/30 ${settings.liveTranscriptionEnabled ? 'w-[420px] min-w-[320px]' : 'flex-1'}`}>
+          <div className="flex items-center justify-between px-5 py-3 border-b border-border">
             <div className="flex items-center gap-2">
-              <NotebookPen className="w-4 h-4 text-emerald-500" />
-              <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100">My Meeting Notes</h2>
+              <NotebookPen className="w-3.5 h-3.5 text-emerald-500" />
+              <span className="text-sm text-muted-foreground">Meeting Notes</span>
             </div>
-            <span className="text-xs text-gray-500 dark:text-gray-400">{liveNotes.length} chars</span>
+            <span className="text-[11px] text-muted-foreground/60">
+              {meetingId ? 'Auto-saved' : 'Start recording'}
+            </span>
           </div>
-
-          <div className="flex-1 min-h-0 p-3 bg-white/70 dark:bg-surface-900/20">
+          <div className="flex-1 p-5">
             <textarea
               value={liveNotes}
               onChange={(e) => setLiveNotes(e.target.value)}
               disabled={!meetingId}
               placeholder={
                 meetingId
-                  ? "Write notes, decisions, and action items while the meeting is running..."
-                  : "Start recording to begin this meeting notepad."
+                  ? "Start typing your notes..."
+                  : "Start recording to begin taking notes."
               }
-              className="w-full h-full min-h-0 resize-none rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-surface-900 px-3 py-3 text-sm leading-6 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+              className="w-full h-full bg-transparent text-sm text-foreground/90 resize-none outline-none leading-relaxed placeholder:text-muted-foreground/40"
             />
           </div>
-
-          <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400">
-            Notes are auto-saved locally during recording and attached to the meeting when you stop.
-          </div>
-        </section>
+        </div>
       </div>
     </div>
   );

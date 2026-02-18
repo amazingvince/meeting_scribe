@@ -45,12 +45,14 @@ export function MeetingSearch({
       value={localValue}
       onChange={(e) => setLocalValue(e.target.value)}
       placeholder={placeholder}
+      className="h-11 rounded-xl shadow-none"
       leftIcon={<Search className="w-4 h-4" />}
       rightIcon={
         localValue ? (
           <button
             onClick={handleClear}
-            className="hover:text-gray-600 dark:hover:text-gray-300"
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+            aria-label="Clear search"
           >
             <X className="w-4 h-4" />
           </button>

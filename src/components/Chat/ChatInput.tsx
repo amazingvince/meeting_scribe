@@ -15,7 +15,7 @@ interface ChatInputProps {
 export function ChatInput({
   onSend,
   isLoading,
-  placeholder = 'Ask a question about your meetings...',
+  placeholder = 'Ask about your meetings...',
 }: ChatInputProps) {
   const [value, setValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -45,35 +45,35 @@ export function ChatInput({
   );
 
   return (
-    <div className="flex items-end gap-2 p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        disabled={isLoading}
-        rows={1}
-        className="
-          flex-1 resize-none
-          px-4 py-2 rounded-lg
-          border border-gray-300 dark:border-gray-600
-          bg-white dark:bg-gray-800
-          text-gray-900 dark:text-gray-100
-          placeholder-gray-400 dark:placeholder-gray-500
-          focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
-          disabled:bg-gray-100 dark:disabled:bg-gray-900
-          max-h-32
-        "
-      />
-      <Button
-        onClick={handleSubmit}
-        disabled={!value.trim() || isLoading}
-        isLoading={isLoading}
-        className="flex-shrink-0"
-      >
-        <Send className="w-4 h-4" />
-      </Button>
+    <div className="border-t border-border bg-card px-6 py-4">
+      <div className="max-w-3xl mx-auto">
+        <div className="relative flex items-end border border-border rounded-xl bg-background overflow-hidden focus-within:ring-1 focus-within:ring-ring/50">
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            disabled={isLoading}
+            rows={1}
+            className="flex-1 px-4 py-3 text-sm bg-transparent resize-none outline-none max-h-32 placeholder:text-muted-foreground/50"
+            style={{ minHeight: '44px' }}
+          />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleSubmit}
+            disabled={!value.trim() || isLoading}
+            isLoading={isLoading}
+            className="m-1.5 text-muted-foreground hover:text-foreground"
+          >
+            <Send className="w-4 h-4" />
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground/50 mt-2 text-center">
+          AI responses are generated from your meeting transcripts. Results may not always be accurate.
+        </p>
+      </div>
     </div>
   );
 }

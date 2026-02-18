@@ -275,9 +275,9 @@ export function BackgroundTaskPill() {
       <button
         type="button"
         onClick={activeTask.action}
-        className="pointer-events-auto w-[260px] rounded-xl border border-indigo-200/70 dark:border-indigo-800/70 bg-white/95 dark:bg-gray-900/95 shadow-lg backdrop-blur px-3 py-2 text-left"
+        className="pointer-events-auto w-[260px] rounded-xl border border-border bg-card/95 shadow-lg backdrop-blur px-3 py-2 text-left"
       >
-        <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300">
+        <div className="flex items-center gap-2 text-primary">
           <Loader2 className="w-4 h-4 animate-spin" />
           {activeTask.icon}
           <span className="text-xs font-semibold tracking-wide uppercase">
@@ -287,12 +287,12 @@ export function BackgroundTaskPill() {
             {activeTask.percent}%
           </span>
         </div>
-        <p className="mt-1 text-xs text-gray-700 dark:text-gray-300 truncate">
+        <p className="mt-1 text-xs text-muted-foreground truncate">
           {activeTask.subtitle}
         </p>
-        <div className="mt-2 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+        <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
           <div
-            className="h-full bg-indigo-500 rounded-full transition-all duration-300"
+            className="h-full bg-primary rounded-full transition-all duration-300"
             style={{ width: `${activeTask.percent}%` }}
           />
         </div>

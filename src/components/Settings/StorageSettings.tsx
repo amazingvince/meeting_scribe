@@ -51,7 +51,9 @@ export function StorageSettings() {
   return (
     <Card>
       <div className="flex items-center gap-2 mb-4">
-        <HardDrive className="w-5 h-5 text-orange-500" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/70">
+          <HardDrive className="w-5 h-5 text-muted-foreground" />
+        </div>
         <CardTitle>Storage Usage</CardTitle>
       </div>
 
@@ -60,10 +62,10 @@ export function StorageSettings() {
           {/* Total usage */}
           <div>
             <div className="flex justify-between text-sm mb-1">
-              <span className="text-gray-500 dark:text-gray-400">
+              <span className="text-muted-foreground">
                 Total Storage
               </span>
-              <span className="font-medium text-gray-900 dark:text-gray-100">
+              <span className="font-medium text-foreground">
                 {formatBytes(storageStats.total_bytes)}
               </span>
             </div>
@@ -73,41 +75,41 @@ export function StorageSettings() {
           {/* Breakdown */}
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+              <div className="flex items-center gap-2 text-muted-foreground">
                 <Database className="w-4 h-4" />
                 Database
               </div>
-              <span className="text-gray-900 dark:text-gray-100">
+              <span className="text-foreground">
                 {formatBytes(storageStats.database_bytes)}
               </span>
             </div>
 
             <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+              <div className="flex items-center gap-2 text-muted-foreground">
                 <FolderOpen className="w-4 h-4" />
                 Vector Store
               </div>
-              <span className="text-gray-900 dark:text-gray-100">
+              <span className="text-foreground">
                 {formatBytes(storageStats.vectors_bytes)}
               </span>
             </div>
 
             <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+              <div className="flex items-center gap-2 text-muted-foreground">
                 <FileAudio className="w-4 h-4" />
                 Audio Files
               </div>
-              <span className="text-gray-900 dark:text-gray-100">
+              <span className="text-foreground">
                 {formatBytes(storageStats.audio_bytes)}
               </span>
             </div>
 
             <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
+              <div className="flex items-center gap-2 text-muted-foreground">
                 <Cpu className="w-4 h-4" />
                 ML Models
               </div>
-              <span className="text-gray-900 dark:text-gray-100">
+              <span className="text-foreground">
                 {formatBytes(storageStats.models_bytes)}
               </span>
             </div>
@@ -116,36 +118,36 @@ export function StorageSettings() {
       )}
 
       {dbStats && (
-        <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-          <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
+        <div className="mt-6 border-t border-border pt-4">
+          <h4 className="mb-3 text-sm font-medium text-foreground">
             Database Statistics
           </h4>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-gray-500 dark:text-gray-400">Meetings</span>
-              <p className="font-medium text-gray-900 dark:text-gray-100">
+              <span className="text-muted-foreground">Meetings</span>
+              <p className="font-medium text-foreground">
                 {dbStats.meeting_count}
               </p>
             </div>
             <div>
-              <span className="text-gray-500 dark:text-gray-400">
+              <span className="text-muted-foreground">
                 Transcript Segments
               </span>
-              <p className="font-medium text-gray-900 dark:text-gray-100">
+              <p className="font-medium text-foreground">
                 {dbStats.segment_count.toLocaleString()}
               </p>
             </div>
             <div>
-              <span className="text-gray-500 dark:text-gray-400">Notes</span>
-              <p className="font-medium text-gray-900 dark:text-gray-100">
+              <span className="text-muted-foreground">Notes</span>
+              <p className="font-medium text-foreground">
                 {dbStats.note_count}
               </p>
             </div>
             <div>
-              <span className="text-gray-500 dark:text-gray-400">
+              <span className="text-muted-foreground">
                 Total Duration
               </span>
-              <p className="font-medium text-gray-900 dark:text-gray-100">
+              <p className="font-medium text-foreground">
                 {Math.round(dbStats.total_duration_ms / 60000)} min
               </p>
             </div>

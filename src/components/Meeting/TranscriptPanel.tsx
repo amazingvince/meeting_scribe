@@ -153,12 +153,12 @@ export function TranscriptPanel({
     'This can take a moment depending on audio length and model speed.';
 
   const processingStatusBlock = showProcessingStatus ? (
-    <div className="px-4 py-3 border-b border-indigo-100 dark:border-indigo-900 bg-indigo-50/60 dark:bg-indigo-900/10">
-      <div className="flex items-center gap-2 text-sm text-indigo-700 dark:text-indigo-300">
+    <div className="border-b border-border bg-muted/50 px-4 py-3">
+      <div className="flex items-center gap-2 text-sm text-foreground">
         <Loader2 className="w-4 h-4 animate-spin" />
         <span className="font-medium">{statusLabel}</span>
       </div>
-      <p className="mt-1 text-xs text-indigo-600 dark:text-indigo-400">
+      <p className="mt-1 text-xs text-muted-foreground">
         {statusMessage}
       </p>
       {processingProgress ? (
@@ -166,13 +166,13 @@ export function TranscriptPanel({
           <ProgressBar
             value={processingProgress.percent}
             size="sm"
-            color="indigo"
+            color="blue"
             showLabel
           />
         </div>
       ) : (
-        <div className="mt-2 h-1.5 bg-indigo-100 dark:bg-indigo-900/40 rounded-full overflow-hidden">
-          <div className="h-full w-1/3 bg-indigo-500 rounded-full animate-pulse" />
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+          <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
         </div>
       )}
     </div>
@@ -227,9 +227,8 @@ export function TranscriptPanel({
       <div className="h-full flex flex-col">
         {/* Header with generate button even when no transcript */}
         {hasAudio && (
-          <div className="flex items-center justify-end px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center justify-end border-b border-border px-4 py-3">
             <Button
-              variant="primary"
               size="sm"
               onClick={handleGenerateTranscript}
               isLoading={isProcessing}
@@ -250,8 +249,8 @@ export function TranscriptPanel({
   return (
     <div className="h-full flex flex-col">
       {/* Header with regenerate button */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-        <span className="text-sm text-gray-500 dark:text-gray-400">
+      <div className="flex items-center justify-between border-b border-border px-4 py-3">
+        <span className="text-sm text-muted-foreground">
           {segments.length} segment{segments.length !== 1 ? 's' : ''}
         </span>
         {hasAudio && (
@@ -271,7 +270,7 @@ export function TranscriptPanel({
       {processingStatusBlock}
 
       {/* Transcript content */}
-      <div className="flex-1 p-4 space-y-6 overflow-y-auto">
+      <div className="no-scrollbar flex-1 space-y-5 overflow-y-auto p-4 md:p-5">
         {groupedSegments.map((group, idx) => (
           <div key={idx} className="space-y-2">
             <div className="flex items-center gap-3">
@@ -280,21 +279,21 @@ export function TranscriptPanel({
                   text-sm font-medium px-2 py-0.5 rounded
                   ${
                     group.speaker === 'You'
-                      ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
-                      : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                      ? 'bg-primary/10 text-primary'
+                      : 'bg-muted text-muted-foreground'
                   }
                 `}
               >
                 {group.speaker}
               </span>
               <button
-                className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 font-mono"
+                className="font-mono text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => onTimestampClick?.(group.startMs)}
               >
                 {formatDuration(group.startMs)}
               </button>
             </div>
-            <div className="text-gray-700 dark:text-gray-300 leading-relaxed">
+            <div className="leading-relaxed text-foreground/80">
               {group.segments.map((segment, segIdx) => (
                 <span
                   key={segIdx}
@@ -316,10 +315,10 @@ export function TranscriptPanel({
         title="Load Transcription Model"
         size="sm"
       >
-        <p className="text-gray-600 dark:text-gray-400">
+        <p className="text-muted-foreground">
           The transcription model is not loaded. Would you like to load it now?
         </p>
-        <p className="text-sm text-gray-500 dark:text-gray-500 mt-2">
+        <p className="text-sm text-muted-foreground mt-2">
           This may take a moment depending on your hardware.
         </p>
         <ModalFooter>
@@ -327,7 +326,6 @@ export function TranscriptPanel({
             Cancel
           </Button>
           <Button
-            variant="primary"
             onClick={handleLoadModel}
             isLoading={isLoadingModel}
           >

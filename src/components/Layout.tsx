@@ -1,6 +1,8 @@
 import { ReactNode, useEffect, useState } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { Mic, Library, MessageSquare, Settings } from 'lucide-react';
+import logoMark from '../assets/branding/meeting-scribe-mark.svg';
+import { motion } from 'framer-motion';
 import clsx from 'clsx';
 import { BackgroundTaskPill } from './ui/BackgroundTaskPill';
 import { getRecordingState, onRecordingStateChanged } from '../lib/tauri';
@@ -10,10 +12,103 @@ interface LayoutProps {
   appInfo: { version: string; data_dir: string; platform: string } | null;
 }
 
+interface NavItemProps {
+  to: string;
+  icon: ReactNode;
+  label: string;
+  isRecording?: boolean;
+}
+
+const navItems = [
+  { to: '/', Icon: Mic, label: 'Record' },
+  { to: '/library', Icon: Library, label: 'Library' },
+  { to: '/chat', Icon: MessageSquare, label: 'Chat' },
+  { to: '/settings', Icon: Settings, label: 'Settings' },
+] as const;
+
+function MobileNavItem({ to, icon, label, isRecording = false }: NavItemProps) {
+  return (
+    <NavLink to={to} className="group relative flex min-h-[52px] items-center justify-center">
+      {({ isActive }) => (
+        <div
+          className={clsx(
+            'relative flex h-full w-full flex-col items-center justify-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors duration-150',
+            isActive
+              ? isRecording
+                ? 'text-red-600 dark:text-red-300'
+                : 'text-foreground'
+              : isRecording
+                ? 'text-red-500 dark:text-red-300'
+                : 'text-muted-foreground group-hover:text-foreground'
+          )}
+        >
+          {isActive && (
+            <motion.span
+              layoutId="main-nav-active-pill"
+              className="absolute inset-0 rounded-lg bg-accent shadow-sm"
+              transition={{ type: 'spring', stiffness: 430, damping: 34, mass: 0.7 }}
+            />
+          )}
+
+          <span
+            className={clsx(
+              'relative z-10 flex h-7 w-7 items-center justify-center rounded-lg transition-colors duration-150',
+              isActive
+                ? isRecording
+                  ? 'bg-red-500/15 text-red-600 dark:bg-red-500/20 dark:text-red-300'
+                  : 'text-foreground'
+                : 'bg-transparent'
+            )}
+          >
+            <span className={clsx(isRecording && label === 'Record' && 'animate-pulse')}>
+              {icon}
+            </span>
+            {isRecording && label === 'Record' && (
+              <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500" />
+            )}
+          </span>
+
+          <span className="relative z-10">{label}</span>
+        </div>
+      )}
+    </NavLink>
+  );
+}
+
+function DesktopNavItem({ to, icon, label, isRecording = false }: NavItemProps) {
+  return (
+    <NavLink to={to} className="group">
+      {({ isActive }) => (
+        <div
+          className={clsx(
+            'flex h-14 w-14 flex-col items-center justify-center rounded-xl text-[10px] font-medium transition-colors duration-150',
+            isActive
+              ? 'bg-accent text-foreground'
+              : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+          )}
+        >
+          <div className="relative mb-0.5">
+            <span
+              className={clsx(
+                'inline-flex h-5 w-5 items-center justify-center',
+                isRecording && label === 'Record' && 'animate-pulse'
+              )}
+            >
+              {icon}
+            </span>
+            {isRecording && label === 'Record' && (
+              <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-red-500" />
+            )}
+          </div>
+          <span>{label}</span>
+        </div>
+      )}
+    </NavLink>
+  );
+}
+
 export function Layout({ children, appInfo }: LayoutProps) {
   const [isRecordingActive, setIsRecordingActive] = useState(false);
-  const location = useLocation();
-  const isRecordRoute = location.pathname === '/';
 
   useEffect(() => {
     let cancelled = false;
@@ -60,73 +155,52 @@ export function Layout({ children, appInfo }: LayoutProps) {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen bg-surface-50 dark:bg-surface-950">
+    <div className="flex h-screen min-h-0 bg-background">
       <BackgroundTaskPill />
 
-      {/* Main content */}
-      <main
-        className={clsx(
-          'flex-1 p-6',
-          isRecordRoute ? 'overflow-hidden' : 'overflow-auto'
-        )}
+      {/* Desktop sidebar */}
+      <aside
+        className="hidden w-[72px] min-w-[72px] flex-col items-center border-r border-border bg-card py-4 md:flex"
+        title={appInfo ? `v${appInfo.version} • ${appInfo.platform}` : undefined}
       >
+        <img src={logoMark} alt="Meeting Scribe" className="mb-6 h-10 w-10 rounded-lg" />
+        <nav className="flex flex-1 flex-col items-center gap-1">
+          {navItems.map((item) => (
+            <DesktopNavItem
+              key={item.to}
+              to={item.to}
+              icon={<item.Icon size={18} />}
+              label={item.label}
+              isRecording={item.to === '/' ? isRecordingActive : false}
+            />
+          ))}
+        </nav>
+      </aside>
+
+      {/* Main content — each page owns its own padding, scrolling, and max-width */}
+      <main className="flex-1 min-h-0 min-w-0 overflow-hidden">
         {children}
       </main>
 
-      {/* Bottom navigation */}
-      <nav className="border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-surface-900">
-        <div className="flex justify-around py-2">
-          <NavItem to="/" icon={<Mic size={24} />} label="Record" isRecording={isRecordingActive} />
-          <NavItem to="/library" icon={<Library size={24} />} label="Library" />
-          <NavItem to="/chat" icon={<MessageSquare size={24} />} label="Chat" />
-          <NavItem to="/settings" icon={<Settings size={24} />} label="Settings" />
-        </div>
-
-        {/* Version info (dev only) */}
-        {appInfo && (
-          <div className="text-center text-xs text-gray-400 pb-2">
-            v{appInfo.version} | {appInfo.platform}
+      {/* Mobile bottom nav */}
+      <nav className="pointer-events-none fixed inset-x-0 bottom-3 z-40 px-3 md:hidden">
+        <div
+          className="pointer-events-auto mx-auto w-full max-w-lg rounded-xl border border-border bg-card/95 p-1.5 shadow-lg backdrop-blur"
+          title={appInfo ? `v${appInfo.version} • ${appInfo.platform}` : undefined}
+        >
+          <div className="grid grid-cols-4 gap-1">
+            {navItems.map((item) => (
+              <MobileNavItem
+                key={item.to}
+                to={item.to}
+                icon={<item.Icon size={20} />}
+                label={item.label}
+                isRecording={item.to === '/' ? isRecordingActive : false}
+              />
+            ))}
           </div>
-        )}
+        </div>
       </nav>
     </div>
-  );
-}
-
-interface NavItemProps {
-  to: string;
-  icon: ReactNode;
-  label: string;
-  isRecording?: boolean;
-}
-
-function NavItem({ to, icon, label, isRecording = false }: NavItemProps) {
-  return (
-    <NavLink
-      to={to}
-      className={({ isActive }) =>
-        clsx(
-          'flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors',
-          isActive
-            ? isRecording
-              ? 'text-red-600 dark:text-red-400'
-              : 'text-primary-600 dark:text-primary-400'
-            : isRecording
-              ? 'text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300'
-              : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'
-        )
-      }
-    >
-      <div className="relative">
-        <span className={clsx(isRecording && 'animate-pulse')}>{icon}</span>
-        {isRecording && (
-          <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500" />
-        )}
-      </div>
-      <span className="text-xs font-medium">
-        {label}
-        {isRecording && label === 'Record' ? ' Live' : ''}
-      </span>
-    </NavLink>
   );
 }

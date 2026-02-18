@@ -1,8 +1,6 @@
-/**
- * Tabs component for navigation
- */
-
 import { createContext, useContext, useState, type ReactNode } from 'react';
+import { motion } from 'framer-motion';
+import { cn } from '../../lib/utils';
 
 interface TabsContextValue {
   activeTab: string;
@@ -24,13 +22,13 @@ export function Tabs({
   value,
   onValueChange,
   children,
-  className = '',
+  className,
 }: TabsProps) {
   const [internalValue, setInternalValue] = useState(defaultValue);
   const activeTab = value ?? internalValue;
 
   const setActiveTab = (tab: string) => {
-    if (!value) {
+    if (value === undefined) {
       setInternalValue(tab);
     }
     onValueChange?.(tab);
@@ -56,15 +54,13 @@ interface TabsListProps {
   className?: string;
 }
 
-export function TabsList({ children, className = '' }: TabsListProps) {
+export function TabsList({ children, className }: TabsListProps) {
   return (
     <div
-      className={`
-        flex gap-1 p-1
-        bg-gray-100 dark:bg-gray-800
-        rounded-lg
-        ${className}
-      `}
+      className={cn(
+        'inline-flex h-10 items-center justify-center rounded-xl border border-border bg-muted/80 p-1',
+        className
+      )}
     >
       {children}
     </div>
@@ -81,7 +77,7 @@ interface TabsTriggerProps {
 export function TabsTrigger({
   value,
   children,
-  className = '',
+  className,
   disabled = false,
 }: TabsTriggerProps) {
   const { activeTab, setActiveTab } = useTabs();
@@ -89,21 +85,27 @@ export function TabsTrigger({
 
   return (
     <button
-      className={`
-        px-4 py-2 text-sm font-medium rounded-md
-        transition-colors duration-150
-        ${
-          isActive
-            ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
-        }
-        ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
-        ${className}
-      `}
+      type="button"
       onClick={() => !disabled && setActiveTab(value)}
       disabled={disabled}
+      className={cn(
+        'relative inline-flex h-8 items-center justify-center rounded-md px-3 text-sm font-medium transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        isActive
+          ? 'text-foreground'
+          : 'text-muted-foreground hover:text-foreground',
+        disabled && 'cursor-not-allowed opacity-50',
+        className
+      )}
     >
-      {children}
+      {isActive && (
+        <motion.span
+          layoutId="tabs-active-pill"
+          className="absolute inset-0 rounded-md bg-card shadow-sm"
+          transition={{ type: 'spring', stiffness: 460, damping: 36, mass: 0.65 }}
+        />
+      )}
+      <span className="relative z-10">{children}</span>
     </button>
   );
 }
@@ -114,14 +116,17 @@ interface TabsContentProps {
   className?: string;
 }
 
-export function TabsContent({
-  value,
-  children,
-  className = '',
-}: TabsContentProps) {
+export function TabsContent({ value, children, className }: TabsContentProps) {
   const { activeTab } = useTabs();
-
   if (activeTab !== value) return null;
-
-  return <div className={className}>{children}</div>;
+  return (
+    <motion.div
+      className={className}
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.1, ease: [0.22, 1, 0.36, 1] }}
+    >
+      {children}
+    </motion.div>
+  );
 }

@@ -41,7 +41,9 @@ export function AppearanceSettings() {
   return (
     <Card>
       <div className="flex items-center gap-2 mb-4">
-        <Sun className="w-5 h-5 text-amber-500" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/70">
+          <Sun className="w-5 h-5 text-muted-foreground" />
+        </div>
         <CardTitle>Appearance</CardTitle>
       </div>
 
@@ -56,8 +58,8 @@ export function AppearanceSettings() {
               className={[
                 'rounded-lg border p-3 text-left transition-colors',
                 selected
-                  ? 'border-primary-500 bg-primary-50 text-primary-800 dark:border-primary-400 dark:bg-primary-900/20 dark:text-primary-200'
-                  : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:border-gray-600 dark:hover:bg-gray-700/70',
+                  ? 'border-foreground/30 bg-accent text-foreground'
+                  : 'border-border bg-card text-foreground hover:bg-accent/50',
               ].join(' ')}
               aria-pressed={selected}
             >
@@ -65,7 +67,7 @@ export function AppearanceSettings() {
                 {option.icon}
                 {option.label}
               </div>
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              <p className="mt-1 text-xs text-muted-foreground">
                 {option.description}
               </p>
             </button>
