@@ -9,7 +9,192 @@ pub mod models;
 pub mod storage;
 
 use std::path::PathBuf;
-use tracing::info;
+use std::sync::Once;
+use tracing::{info, warn};
+
+static ORT_ENV_INIT: Once = Once::new();
+
+/// Configure ONNX Runtime dynamic library path when needed.
+///
+/// Packaged desktop apps often launch without shell-inherited environment, so
+/// `ORT_DYLIB_PATH` may be missing even when the runtime is bundled next to the
+/// executable/resources. We resolve common per-platform locations once.
+pub fn ensure_onnx_runtime_env() {
+    ORT_ENV_INIT.call_once(|| {
+        if let Some(existing) = std::env::var_os("ORT_DYLIB_PATH") {
+            let path = PathBuf::from(&existing);
+            if path.exists() {
+                info!("Using ONNX Runtime from ORT_DYLIB_PATH={}", path.display());
+                return;
+            }
+            warn!(
+                "ORT_DYLIB_PATH is set but file does not exist: {}",
+                path.display()
+            );
+        }
+
+        if let Some(path) = resolve_onnx_runtime_path() {
+            std::env::set_var("ORT_DYLIB_PATH", &path);
+            info!("Using ONNX Runtime from {}", path.display());
+            return;
+        }
+
+        warn!(
+            "ONNX Runtime library not found in known locations; transcription/embedding init may fail"
+        );
+    });
+}
+
+fn resolve_onnx_runtime_path() -> Option<PathBuf> {
+    let mut candidate_dirs = Vec::new();
+
+    if let Ok(exe) = std::env::current_exe() {
+        for dir in onnx_dirs_near_executable(&exe) {
+            push_unique_path(&mut candidate_dirs, dir);
+        }
+    }
+
+    for dir in onnx_system_dirs() {
+        push_unique_path(&mut candidate_dirs, dir);
+    }
+
+    find_library_in_dirs(
+        &candidate_dirs,
+        onnx_runtime_library_name(),
+        onnx_runtime_library_prefix(),
+    )
+}
+
+fn onnx_dirs_near_executable(exe_path: &std::path::Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
+    let Some(exe_dir) = exe_path.parent() else {
+        return dirs;
+    };
+
+    dirs.push(exe_dir.to_path_buf());
+    dirs.push(exe_dir.join("resources"));
+    dirs.push(exe_dir.join("resources/runtime"));
+    dirs.push(exe_dir.join("Resources"));
+    dirs.push(exe_dir.join("Resources/runtime"));
+    dirs.push(exe_dir.join("lib"));
+
+    if let Some(parent) = exe_dir.parent() {
+        dirs.push(parent.join("Resources"));
+        dirs.push(parent.join("Resources/runtime"));
+        dirs.push(parent.join("Frameworks"));
+        dirs.push(parent.join("MacOS"));
+        dirs.push(parent.join("lib"));
+        dirs.push(parent.join("lib/meeting-scribe"));
+        dirs.push(parent.join("lib/meeting-scribe/resources"));
+        dirs.push(parent.join("lib/meeting-scribe/resources/runtime"));
+        dirs.push(parent.join("lib/meeting_scribe"));
+        dirs.push(parent.join("lib/meeting_scribe/resources"));
+        dirs.push(parent.join("lib/meeting_scribe/resources/runtime"));
+    }
+
+    dirs
+}
+
+fn onnx_system_dirs() -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        vec![
+            PathBuf::from("/opt/homebrew/lib"),
+            PathBuf::from("/usr/local/lib"),
+        ]
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        vec![
+            PathBuf::from("/usr/lib/meeting-scribe"),
+            PathBuf::from("/usr/lib/meeting-scribe/resources"),
+            PathBuf::from("/usr/lib/meeting-scribe/resources/runtime"),
+            PathBuf::from("/usr/lib/meeting_scribe"),
+            PathBuf::from("/usr/lib/meeting_scribe/resources"),
+            PathBuf::from("/usr/lib/meeting_scribe/resources/runtime"),
+            PathBuf::from("/usr/local/lib"),
+            PathBuf::from("/usr/lib"),
+        ]
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Vec::new()
+    }
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
+    if !paths.iter().any(|p| p == &path) {
+        paths.push(path);
+    }
+}
+
+fn find_library_in_dirs(dirs: &[PathBuf], exact_name: &str, prefix_name: &str) -> Option<PathBuf> {
+    for dir in dirs {
+        let exact = dir.join(exact_name);
+        if exact.is_file() {
+            return Some(exact);
+        }
+
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            if path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|name| name.starts_with(prefix_name))
+            {
+                return Some(path);
+            }
+        }
+    }
+
+    None
+}
+
+fn onnx_runtime_library_name() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "onnxruntime.dll"
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        "libonnxruntime.so"
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        "libonnxruntime.dylib"
+    }
+}
+
+fn onnx_runtime_library_prefix() -> &'static str {
+    #[cfg(target_os = "windows")]
+    {
+        "onnxruntime.dll"
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        "libonnxruntime.so"
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        "libonnxruntime.dylib"
+    }
+}
 
 /// Application configuration
 #[derive(Debug, Clone)]
@@ -53,5 +238,45 @@ impl AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self::new().expect("Failed to create default config")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_library_in_dirs;
+    use std::path::PathBuf;
+
+    #[test]
+    fn find_library_prefers_exact_file() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let exact = tmp.path().join("libonnxruntime.so");
+        let versioned = tmp.path().join("libonnxruntime.so.1.22.0");
+        std::fs::write(&exact, b"exact").expect("write exact");
+        std::fs::write(&versioned, b"versioned").expect("write versioned");
+
+        let found = find_library_in_dirs(
+            &[PathBuf::from(tmp.path())],
+            "libonnxruntime.so",
+            "libonnxruntime.so",
+        )
+        .expect("must find library");
+
+        assert_eq!(found, exact);
+    }
+
+    #[test]
+    fn find_library_accepts_versioned_shared_object() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let versioned = tmp.path().join("libonnxruntime.so.1.22.0");
+        std::fs::write(&versioned, b"versioned").expect("write versioned");
+
+        let found = find_library_in_dirs(
+            &[PathBuf::from(tmp.path())],
+            "libonnxruntime.so",
+            "libonnxruntime.so",
+        )
+        .expect("must find versioned library");
+
+        assert_eq!(found, versioned);
     }
 }

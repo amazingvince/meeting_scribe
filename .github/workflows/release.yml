@@ -70,6 +70,78 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Stage ONNX Runtime resource files (Unix)
+        if: matrix.platform != 'windows-latest'
+        run: |
+          set -euo pipefail
+
+          resource_dir="src-tauri/resources/runtime"
+          mkdir -p "$resource_dir"
+          find "$resource_dir" -mindepth 1 -delete
+
+          cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+
+          dist_file="$(ls "$HOME/.cargo/registry/src/"*/ort-sys-2.0.0-rc.10/dist.txt | head -n 1)"
+          line="$(awk -F '\t' -v target='${{ matrix.target }}' '$1 == "none" && $2 == target { print; exit }' "$dist_file")"
+          test -n "$line"
+
+          url="$(printf '%s' "$line" | cut -f3)"
+          archive="$(mktemp /tmp/onnxruntime.XXXXXX.tgz)"
+          extract_dir="$(mktemp -d /tmp/onnxruntime.XXXXXX)"
+
+          curl --fail --location --silent --show-error "$url" -o "$archive"
+          tar -xzf "$archive" -C "$extract_dir"
+
+          while IFS= read -r lib; do
+            cp "$lib" "$resource_dir/"
+          done < <(find "$extract_dir" -type f \( -name 'libonnxruntime*.so*' -o -name 'libonnxruntime*.dylib' \))
+
+          test -n "$(find "$resource_dir" -type f | head -n 1)"
+          ls -la "$resource_dir"
+
+      - name: Stage ONNX Runtime resource files (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $resourceDir = "src-tauri/resources/runtime"
+          New-Item -ItemType Directory -Force -Path $resourceDir | Out-Null
+          Get-ChildItem -Path $resourceDir -File -Force -ErrorAction SilentlyContinue | Remove-Item -Force
+
+          cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+
+          $distFile = Get-ChildItem "$env:USERPROFILE\.cargo\registry\src\*\ort-sys-2.0.0-rc.10\dist.txt" | Select-Object -First 1
+          if (-not $distFile) { throw "Unable to find ort-sys dist.txt" }
+
+          $line = Get-Content $distFile.FullName | Where-Object { $_ -and -not $_.StartsWith("#") } | Where-Object {
+            $parts = $_ -split "`t"
+            $parts.Length -ge 4 -and $parts[0] -eq "none" -and $parts[1] -eq "${{ matrix.target }}"
+          } | Select-Object -First 1
+          if (-not $line) { throw "No ort-sys distribution entry for target ${{ matrix.target }}" }
+
+          $parts = $line -split "`t"
+          $url = $parts[2]
+
+          $archive = Join-Path $env:RUNNER_TEMP "onnxruntime-${{ matrix.target }}.tgz"
+          $extractDir = Join-Path $env:RUNNER_TEMP "onnxruntime-${{ matrix.target }}"
+          if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
+          New-Item -ItemType Directory -Path $extractDir | Out-Null
+
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          tar -xzf $archive -C $extractDir
+
+          $dlls = Get-ChildItem -Recurse -Path $extractDir -Filter "*.dll"
+          if (-not $dlls) { throw "No ONNX Runtime DLLs found in extracted archive" }
+          foreach ($dll in $dlls) {
+            Copy-Item $dll.FullName -Destination $resourceDir -Force
+          }
+
+          if (-not (Get-ChildItem $resourceDir -Filter "onnxruntime.dll" -ErrorAction SilentlyContinue)) {
+            throw "onnxruntime.dll missing from staged runtime resources"
+          }
+          Get-ChildItem $resourceDir
+
       - name: Configure macOS deployment target
         if: matrix.target == 'aarch64-apple-darwin'
         run: |
@@ -89,3 +161,54 @@ jobs:
           prerelease: false
           tauriScript: pnpm tauri
           args: --target ${{ matrix.target }}
+
+      - name: Verify Linux bundle payload
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          set -euo pipefail
+
+          bundle_dir="src-tauri/target/${{ matrix.target }}/release/bundle"
+          deb_file="$(ls "$bundle_dir"/deb/*.deb | head -n 1)"
+
+          test -n "$deb_file"
+          test -f "$deb_file"
+
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          pushd "$tmp_dir" >/dev/null
+
+          ar x "$GITHUB_WORKSPACE/$deb_file" data.tar.gz
+          tar -tzf data.tar.gz > deb-contents.txt
+
+          grep -E 'usr/bin/meeting-scribe$' deb-contents.txt
+          grep -E 'libonnxruntime\.so' deb-contents.txt
+
+          popd >/dev/null
+
+      - name: Verify Windows bundle payload
+        if: matrix.target == 'x86_64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $bundleDir = "src-tauri/target/${{ matrix.target }}/release/bundle"
+          $msi = Get-ChildItem "$bundleDir/msi/*.msi" | Select-Object -First 1
+          $nsis = Get-ChildItem "$bundleDir/nsis/*.exe" | Select-Object -First 1
+
+          if (-not $msi) { throw "No MSI artifact found in $bundleDir/msi" }
+          if (-not $nsis) { throw "No NSIS artifact found in $bundleDir/nsis" }
+
+          $extractDir = Join-Path $env:RUNNER_TEMP "msi-extract-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $extractDir | Out-Null
+
+          $args = @("/a", "`"$($msi.FullName)`"", "/qn", "TARGETDIR=`"$extractDir`"")
+          $process = Start-Process -FilePath "msiexec.exe" -ArgumentList $args -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "msiexec admin extraction failed with exit code $($process.ExitCode)"
+          }
+
+          $appExe = Get-ChildItem -Recurse -Path $extractDir -Filter "meeting-scribe.exe" | Select-Object -First 1
+          $ortDll = Get-ChildItem -Recurse -Path $extractDir -Filter "onnxruntime.dll" | Select-Object -First 1
+
+          if (-not $appExe) { throw "meeting-scribe.exe missing from extracted MSI payload" }
+          if (-not $ortDll) { throw "onnxruntime.dll missing from extracted MSI payload" }
