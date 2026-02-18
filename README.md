@@ -47,8 +47,10 @@ pnpm tauri build --debug
 ```
 
 `pnpm tauri ...` now stages the same pinned ONNX Runtime binaries used by release builds into `src-tauri/resources/runtime` before invoking Tauri. The first run on a machine may download these files.
+On macOS, staged ONNX dylibs are re-signed with the active app signing identity (default ad-hoc `-`) so bundled apps can load them under hardened runtime.
 On macOS, local builds also enforce `11.0` deployment target for Cargo/CMake-native dependencies (including `llama-cpp-sys`) to match bundle support policy.
 On macOS `pnpm tauri build ...` runs preflight cleanup for stale `llama-cpp-sys` CMake caches and stale project-owned interstitial DMG mounts (`rw.*.dmg` artifacts/attachments) left by failed packaging runs.
+macOS bundle signing uses `src-tauri/entitlements.plist`, which explicitly disables strict library validation so ONNX runtime dylibs bundled in app resources can be loaded reliably.
 
 ### macOS Notes
 - Grant Microphone permission when prompted.
@@ -159,6 +161,7 @@ Deleting a meeting removes:
 
 - **Transcription/embeddings fail to load in local dev builds**:
   - This repo uses the `ort` crate with `load-dynamic`.
+  - Cargo config pins `ORT_LIB_LOCATION` to `src-tauri/resources/runtime` and disables `libonnxruntime` pkg-config probing to prevent accidental hard-linking to Homebrew dylibs.
   - Release bundles now include ONNX Runtime and the app auto-detects bundled runtime paths on startup.
   - For ad-hoc/dev runs, if runtime discovery fails, set `ORT_DYLIB_PATH` explicitly.
 - **Linux system-audio capture fails to start**:

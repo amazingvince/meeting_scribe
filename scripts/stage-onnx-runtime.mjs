@@ -127,8 +127,7 @@ function hasExpectedRuntimeFiles(spec, files) {
   });
 }
 
-function shouldSkip(spec) {
-  const manifest = readManifest();
+function isManifestUsable(spec, manifest) {
   if (!manifest) {
     return false;
   }
@@ -143,6 +142,56 @@ function shouldSkip(spec) {
   }
 
   return hasExpectedRuntimeFiles(spec, manifest.files);
+}
+
+function resolveCodesignIdentity() {
+  const identity = process.env.APPLE_SIGNING_IDENTITY;
+  if (typeof identity === 'string' && identity.trim() !== '') {
+    return identity.trim();
+  }
+  return '-';
+}
+
+function codesignMacRuntimeLibraries(files) {
+  if (process.platform !== 'darwin') {
+    return;
+  }
+  if (!Array.isArray(files) || files.length === 0) {
+    return;
+  }
+
+  const identity = resolveCodesignIdentity();
+  const signableFiles = files
+    .map((name) => join(runtimeDir, name))
+    .filter((filePath) => {
+      try {
+        return lstatSync(filePath).isFile();
+      } catch {
+        return false;
+      }
+    });
+
+  for (const filePath of signableFiles) {
+    const signed = spawnSync('codesign', ['--force', '--sign', identity, filePath], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+    });
+    if (signed.error) {
+      throw new Error(`Failed to run codesign: ${signed.error.message}`);
+    }
+    if (typeof signed.status === 'number' && signed.status !== 0) {
+      const details = [signed.stdout, signed.stderr].filter(Boolean).join('\n').trim();
+      throw new Error(
+        `codesign failed for ${filePath} with identity "${identity}"${
+          details ? `: ${details}` : ''
+        }`
+      );
+    }
+  }
+
+  console.log(
+    `[onnx] Re-signed ${signableFiles.length} runtime dylib(s) with identity "${identity}"`
+  );
 }
 
 async function downloadFile(url, destinationPath) {
@@ -257,10 +306,12 @@ async function main() {
   const spec = platformSpec();
   const releaseUrl = `${RELEASE_BASE_URL}/${spec.asset}`;
   const forceRestage = process.argv.includes('--force');
+  const existingManifest = readManifest();
 
   mkdirSync(runtimeDir, { recursive: true });
 
-  if (!forceRestage && shouldSkip(spec)) {
+  if (!forceRestage && isManifestUsable(spec, existingManifest)) {
+    codesignMacRuntimeLibraries(existingManifest.files);
     console.log(
       `[onnx] Runtime ${ONNX_RUNTIME_VERSION} already staged for ${spec.platform}/${spec.arch}`
     );
@@ -316,6 +367,7 @@ async function main() {
 
     copied.sort();
     relinkCanonicalRuntime(spec, copied);
+    codesignMacRuntimeLibraries(copied);
     const manifest = {
       version: ONNX_RUNTIME_VERSION,
       platform: spec.platform,

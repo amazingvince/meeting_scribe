@@ -2,6 +2,10 @@
 # Keep local Cargo/CMake builds aligned with the app's supported macOS baseline.
 MACOSX_DEPLOYMENT_TARGET = "11.0"
 CMAKE_OSX_DEPLOYMENT_TARGET = "11.0"
+# Force `ort-sys` to avoid pkg-config system probing (which can hard-link to
+# Homebrew's libonnxruntime) and prefer the repo-staged runtime payload.
+LIBONNXRUNTIME_NO_PKG_CONFIG = "1"
+ORT_LIB_LOCATION = { value = "src-tauri/resources/runtime", relative = true }
 
 [target.aarch64-apple-darwin]
 rustflags = ["-C", "link-arg=-mmacosx-version-min=11.0"]
