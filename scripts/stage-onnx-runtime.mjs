@@ -48,7 +48,7 @@ function platformSpec() {
     return {
       platform,
       arch,
-      asset: `onnxruntime-osx-x64-${ONNX_RUNTIME_VERSION}.tgz`,
+      asset: `onnxruntime-osx-x86_64-${ONNX_RUNTIME_VERSION}.tgz`,
       expectedLibRegex: /^libonnxruntime.*\.dylib$/,
     };
   }

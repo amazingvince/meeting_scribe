@@ -100,7 +100,7 @@ jobs:
               lib_glob='libonnxruntime*.dylib'
               ;;
             x86_64-apple-darwin)
-              url="https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-x64-1.22.0.tgz"
+              url="https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-x86_64-1.22.0.tgz"
               lib_glob='libonnxruntime*.dylib'
               ;;
             *)
