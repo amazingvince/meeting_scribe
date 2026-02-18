@@ -10,7 +10,7 @@ pub mod vad;
 pub mod waveform;
 
 // Re-export key types for convenience
-pub use aec::EchoCanceller;
+pub use aec::{EchoCancellationBackend, EchoCanceller, EchoProcessingInfo};
 pub use denoise::AudioDenoiser;
 pub use pipeline::{AudioPipeline, PipelineConfig, PreprocessingResult};
 pub use vad::{SpeechSegment, Vad, VadConfig};

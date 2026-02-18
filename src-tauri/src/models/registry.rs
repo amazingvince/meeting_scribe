@@ -167,7 +167,9 @@ impl EmbeddingModel {
             name: "EmbeddingGemma Tokenizer".to_string(),
             model_type: ModelType::Embedding,
             size_bytes: 18_000_000, // ~18MB
-            download_url: "https://huggingface.co/pcuenq/gemma-tokenizer/resolve/main/tokenizer.json".to_string(),
+            download_url:
+                "https://huggingface.co/pcuenq/gemma-tokenizer/resolve/main/tokenizer.json"
+                    .to_string(),
             description: "Gemma tokenizer for EmbeddingGemma models.".to_string(),
             is_archive: false,
             archive_format: None,
@@ -312,9 +314,15 @@ impl LlmModel {
     /// Get the download URL for this model
     pub fn download_url(&self) -> &'static str {
         match self {
-            LlmModel::Qwen3_4B => "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/qwen3-4b-q4_k_m.gguf",
-            LlmModel::Qwen3_1_7B => "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf",
-            LlmModel::Qwen3_8B => "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/qwen3-8b-q4_k_m.gguf",
+            LlmModel::Qwen3_4B => {
+                "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/qwen3-4b-q4_k_m.gguf"
+            }
+            LlmModel::Qwen3_1_7B => {
+                "https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf"
+            }
+            LlmModel::Qwen3_8B => {
+                "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/qwen3-8b-q4_k_m.gguf"
+            }
         }
     }
 

@@ -25,8 +25,23 @@ pub struct EmbeddingService {
 impl EmbeddingService {
     /// Load embedding model and tokenizer from files
     pub fn load(model_path: impl AsRef<Path>, tokenizer_path: impl AsRef<Path>) -> Result<Self> {
+        crate::ensure_onnx_runtime_env();
+
         let model_path = model_path.as_ref();
         let tokenizer_path = tokenizer_path.as_ref();
+
+        #[cfg(target_os = "macos")]
+        {
+            let ort_path = std::env::var("ORT_DYLIB_PATH").ok();
+            match ort_path.as_deref() {
+                Some(path) if Path::new(path).exists() => {}
+                _ => {
+                    anyhow::bail!(
+                        "ONNX Runtime library not found. Install `onnxruntime` (Homebrew) or set ORT_DYLIB_PATH to libonnxruntime.dylib before launching the app."
+                    );
+                }
+            }
+        }
 
         info!("Loading embedding model from {:?}", model_path);
 
@@ -116,8 +131,8 @@ impl EmbeddingService {
         let input_ids_array =
             Array2::from_shape_vec((batch_size, max_len), input_ids).context("Invalid shape")?;
 
-        let attention_mask_array =
-            Array2::from_shape_vec((batch_size, max_len), attention_mask).context("Invalid shape")?;
+        let attention_mask_array = Array2::from_shape_vec((batch_size, max_len), attention_mask)
+            .context("Invalid shape")?;
 
         // Run inference
         debug!(
@@ -169,15 +184,15 @@ impl EmbeddingService {
                 let mut pooled = vec![0.0f32; hidden];
 
                 for s in 0..seq_len {
-                    for h in 0..hidden {
-                        let idx = b * seq_len * hidden + s * hidden + h;
-                        pooled[h] += data[idx];
+                    let row_offset = b * seq_len * hidden + s * hidden;
+                    for (h, pooled_value) in pooled.iter_mut().enumerate() {
+                        *pooled_value += data[row_offset + h];
                     }
                 }
 
                 // Mean pooling
-                for h in 0..hidden {
-                    pooled[h] /= seq_len as f32;
+                for pooled_value in pooled.iter_mut() {
+                    *pooled_value /= seq_len as f32;
                 }
 
                 embeddings.push(pooled);
@@ -233,9 +248,10 @@ fn normalize_l2(vec: &[f32]) -> Vec<f32> {
 /// Embedding task types (determines prompting strategy)
 ///
 /// EmbeddingGemma uses task-specific prompts for optimal performance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EmbeddingTask {
     /// Embed documents for storage (transcripts, notes, summaries)
+    #[default]
     Document,
     /// Embed search queries
     Search,
@@ -251,12 +267,6 @@ impl EmbeddingTask {
             Self::Search => format!("task: search result | query: {}", text),
             Self::QuestionAnswering => format!("task: question answering | query: {}", text),
         }
-    }
-}
-
-impl Default for EmbeddingTask {
-    fn default() -> Self {
-        Self::Document
     }
 }
 

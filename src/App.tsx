@@ -8,9 +8,11 @@ import { ChatView } from './components/Chat/ChatView';
 import { SettingsView } from './components/Settings/SettingsView';
 import { ToastContainer } from './components/ui/Toast';
 import { getAppInfo, type AppInfo } from './lib/tauri';
+import { useTheme } from './hooks/useTheme';
 
 function App() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
+  useTheme();
 
   useEffect(() => {
     // Test IPC connection on mount

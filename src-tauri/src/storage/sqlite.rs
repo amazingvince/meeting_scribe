@@ -86,11 +86,10 @@ impl Database {
             let meeting_count: i64 =
                 conn.query_row("SELECT COUNT(*) FROM meetings", [], |row| row.get(0))?;
 
-            let segment_count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM transcript_segments",
-                [],
-                |row| row.get(0),
-            )?;
+            let segment_count: i64 =
+                conn.query_row("SELECT COUNT(*) FROM transcript_segments", [], |row| {
+                    row.get(0)
+                })?;
 
             let total_duration_ms: i64 = conn.query_row(
                 "SELECT COALESCE(SUM(duration_ms), 0) FROM meetings WHERE duration_ms IS NOT NULL",
@@ -127,10 +126,8 @@ impl Database {
     /// Get the database file size in bytes
     pub fn file_size(&self) -> Result<u64> {
         self.with_conn(|conn| {
-            let page_count: i64 =
-                conn.query_row("PRAGMA page_count", [], |row| row.get(0))?;
-            let page_size: i64 =
-                conn.query_row("PRAGMA page_size", [], |row| row.get(0))?;
+            let page_count: i64 = conn.query_row("PRAGMA page_count", [], |row| row.get(0))?;
+            let page_size: i64 = conn.query_row("PRAGMA page_size", [], |row| row.get(0))?;
 
             Ok((page_count * page_size) as u64)
         })
@@ -139,8 +136,7 @@ impl Database {
     /// Check database integrity
     pub fn check_integrity(&self) -> Result<bool> {
         self.with_conn(|conn| {
-            let result: String =
-                conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+            let result: String = conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
 
             let ok = result == "ok";
             if !ok {

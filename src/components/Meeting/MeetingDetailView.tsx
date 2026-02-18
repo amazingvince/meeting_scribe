@@ -111,6 +111,7 @@ export function MeetingDetailView() {
           <TabsContent value="transcript" className="h-full">
             <TranscriptPanel
               meetingId={meeting.id}
+              meetingStatus={meeting.status}
               segments={transcript}
               audioPathYou={meeting.audio_path_you}
               audioPathOthers={meeting.audio_path_others}

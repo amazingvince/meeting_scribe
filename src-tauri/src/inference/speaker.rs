@@ -4,7 +4,13 @@
 //! into a single chronological transcript.
 
 use super::transcription::{format_timestamp, Speaker, TranscriptSegment};
+use std::collections::HashSet;
 use tracing::{debug, info};
+
+const ECHO_MAX_TIME_OFFSET_MS: u64 = 1200;
+const ECHO_MIN_OVERLAP_RATIO: f32 = 0.45;
+const ECHO_MIN_TEXT_CHARS: usize = 10;
+const ECHO_TEXT_SIMILARITY_THRESHOLD: f32 = 0.72;
 
 /// Merge transcripts from mic and system audio
 ///
@@ -16,17 +22,26 @@ pub fn merge_transcripts(
 ) -> Vec<TranscriptSegment> {
     let mic_count = mic_segments.len();
     let system_count = system_segments.len();
-    let total_count = mic_count + system_count;
+    let filtered_mic_segments = filter_echoed_mic_segments(mic_segments, &system_segments);
+    let filtered_mic_count = filtered_mic_segments.len();
+    let dropped_mic = mic_count.saturating_sub(filtered_mic_count);
+    let total_count = filtered_mic_count + system_count;
 
     info!(
         "Merging transcripts: {} mic segments, {} system segments",
         mic_count, system_count
     );
+    if dropped_mic > 0 {
+        info!(
+            "Dropped {} likely echoed mic segment(s) before merge",
+            dropped_mic
+        );
+    }
 
     let mut all_segments = Vec::with_capacity(total_count);
 
     // Add mic segments with "You" speaker
-    for mut segment in mic_segments {
+    for mut segment in filtered_mic_segments {
         segment.speaker = Speaker::You;
         all_segments.push(segment);
     }
@@ -58,6 +73,142 @@ pub fn merge_transcripts(
     );
 
     merged
+}
+
+/// Remove microphone segments that are likely just leaked playback from speakers.
+fn filter_echoed_mic_segments(
+    mic_segments: Vec<TranscriptSegment>,
+    system_segments: &[TranscriptSegment],
+) -> Vec<TranscriptSegment> {
+    if mic_segments.is_empty() || system_segments.is_empty() {
+        return mic_segments;
+    }
+
+    let mut sorted_system = system_segments.to_vec();
+    sorted_system.sort_by_key(|s| s.start_ms);
+
+    let mut filtered = Vec::with_capacity(mic_segments.len());
+    let mut scan_start = 0usize;
+
+    for mic in mic_segments {
+        while scan_start < sorted_system.len()
+            && sorted_system[scan_start]
+                .end_ms
+                .saturating_add(ECHO_MAX_TIME_OFFSET_MS)
+                < mic.start_ms
+        {
+            scan_start += 1;
+        }
+
+        let mut echoed = false;
+        let mut idx = scan_start;
+        while idx < sorted_system.len()
+            && sorted_system[idx].start_ms <= mic.end_ms.saturating_add(ECHO_MAX_TIME_OFFSET_MS)
+        {
+            if is_likely_echo_segment(&mic, &sorted_system[idx]) {
+                echoed = true;
+                break;
+            }
+            idx += 1;
+        }
+
+        if !echoed {
+            filtered.push(mic);
+        }
+    }
+
+    filtered
+}
+
+fn is_likely_echo_segment(mic: &TranscriptSegment, system: &TranscriptSegment) -> bool {
+    let overlap_ratio = temporal_overlap_ratio(mic, system, ECHO_MAX_TIME_OFFSET_MS);
+    if overlap_ratio < ECHO_MIN_OVERLAP_RATIO {
+        return false;
+    }
+
+    let mic_text = normalize_for_similarity(&mic.text);
+    let system_text = normalize_for_similarity(&system.text);
+
+    if mic_text.len() < ECHO_MIN_TEXT_CHARS || system_text.len() < ECHO_MIN_TEXT_CHARS {
+        return false;
+    }
+
+    text_similarity_score(&mic_text, &system_text) >= ECHO_TEXT_SIMILARITY_THRESHOLD
+}
+
+fn temporal_overlap_ratio(a: &TranscriptSegment, b: &TranscriptSegment, tolerance_ms: u64) -> f32 {
+    let a_start = a.start_ms as i64;
+    let a_end = a.end_ms as i64;
+    let b_start = b.start_ms.saturating_sub(tolerance_ms) as i64;
+    let b_end = b.end_ms.saturating_add(tolerance_ms) as i64;
+
+    let overlap_start = a_start.max(b_start);
+    let overlap_end = a_end.min(b_end);
+    if overlap_end <= overlap_start {
+        return 0.0;
+    }
+
+    let overlap = (overlap_end - overlap_start) as u64;
+    let base = a.duration_ms().min(b.duration_ms()).max(1);
+    overlap as f32 / base as f32
+}
+
+fn normalize_for_similarity(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut prev_space = true;
+    for c in text.chars() {
+        let normalized = if c.is_alphanumeric() {
+            c.to_ascii_lowercase()
+        } else {
+            ' '
+        };
+
+        if normalized == ' ' {
+            if !prev_space {
+                out.push(' ');
+            }
+            prev_space = true;
+        } else {
+            out.push(normalized);
+            prev_space = false;
+        }
+    }
+    out.trim().to_string()
+}
+
+fn text_similarity_score(a: &str, b: &str) -> f32 {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+
+    if a == b {
+        return 1.0;
+    }
+
+    if a.contains(b) || b.contains(a) {
+        let shorter = a.len().min(b.len()) as f32;
+        let longer = a.len().max(b.len()) as f32;
+        return (shorter / longer).max(0.78);
+    }
+
+    let set_a: HashSet<&str> = a.split_whitespace().collect();
+    let set_b: HashSet<&str> = b.split_whitespace().collect();
+
+    if set_a.is_empty() || set_b.is_empty() {
+        return 0.0;
+    }
+
+    let intersection = set_a.intersection(&set_b).count() as f32;
+    if intersection == 0.0 {
+        return 0.0;
+    }
+
+    let min_len = set_a.len().min(set_b.len()) as f32;
+    let union_len = set_a.union(&set_b).count() as f32;
+    let containment = intersection / min_len;
+    let jaccard = intersection / union_len;
+
+    containment.max(jaccard)
 }
 
 /// Merge consecutive segments from the same speaker if they're close together
@@ -339,5 +490,58 @@ mod tests {
     fn test_empty_merge() {
         let merged = merge_transcripts(vec![], vec![]);
         assert!(merged.is_empty());
+    }
+
+    #[test]
+    fn test_merge_transcripts_filters_likely_echoed_mic_segment() {
+        let mic = vec![
+            make_segment(
+                1000,
+                3200,
+                "Let's review Q4 pipeline metrics today",
+                Speaker::Unknown,
+            ),
+            make_segment(
+                5000,
+                6700,
+                "Can we schedule the customer follow up",
+                Speaker::Unknown,
+            ),
+        ];
+        let system = vec![make_segment(
+            900,
+            3300,
+            "Let's review q4 pipeline metrics today",
+            Speaker::Unknown,
+        )];
+
+        let merged = merge_transcripts(mic, system);
+
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].speaker, Speaker::Others);
+        assert_eq!(merged[1].speaker, Speaker::You);
+        assert!(merged[1].text.contains("customer follow up"));
+    }
+
+    #[test]
+    fn test_merge_transcripts_keeps_overlapping_different_content() {
+        let mic = vec![make_segment(
+            1000,
+            3200,
+            "I will send the action items after this call",
+            Speaker::Unknown,
+        )];
+        let system = vec![make_segment(
+            900,
+            3300,
+            "The architecture review starts next week",
+            Speaker::Unknown,
+        )];
+
+        let merged = merge_transcripts(mic, system);
+
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].speaker, Speaker::Others);
+        assert_eq!(merged[1].speaker, Speaker::You);
     }
 }

@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
 use tracing::info;
@@ -18,8 +18,8 @@ use crate::models::LlmModel;
 pub struct LlmDownloadProgress {
     /// Model being downloaded
     pub model: LlmModel,
-    /// Progress percentage (0.0 - 1.0)
-    pub progress: f32,
+    /// Progress percentage (0.0 - 100.0)
+    pub percent: f32,
     /// Bytes downloaded so far
     pub downloaded_bytes: u64,
     /// Total bytes to download
@@ -100,7 +100,7 @@ where
 
         let progress = LlmDownloadProgress {
             model,
-            progress: downloaded_bytes as f32 / total_bytes as f32,
+            percent: (downloaded_bytes as f32 / total_bytes as f32) * 100.0,
             downloaded_bytes,
             total_bytes,
             speed_bps,
@@ -115,8 +115,10 @@ where
 }
 
 /// Check if an LLM model is downloaded
-pub fn is_llm_downloaded(model: LlmModel, models_dir: &PathBuf) -> bool {
-    let path = models_dir.join(model.model_dir_name()).join(model.filename());
+pub fn is_llm_downloaded(model: LlmModel, models_dir: &Path) -> bool {
+    let path = models_dir
+        .join(model.model_dir_name())
+        .join(model.filename());
     if path.exists() {
         // Check file size (at least 90% of expected)
         if let Ok(metadata) = std::fs::metadata(&path) {
@@ -127,8 +129,10 @@ pub fn is_llm_downloaded(model: LlmModel, models_dir: &PathBuf) -> bool {
 }
 
 /// Check if an LLM model is downloaded (async version)
-pub async fn is_llm_downloaded_async(model: LlmModel, models_dir: &PathBuf) -> bool {
-    let path = models_dir.join(model.model_dir_name()).join(model.filename());
+pub async fn is_llm_downloaded_async(model: LlmModel, models_dir: &Path) -> bool {
+    let path = models_dir
+        .join(model.model_dir_name())
+        .join(model.filename());
     if let Ok(metadata) = fs::metadata(&path).await {
         return metadata.len() > model.size_bytes() * 9 / 10;
     }
@@ -136,7 +140,7 @@ pub async fn is_llm_downloaded_async(model: LlmModel, models_dir: &PathBuf) -> b
 }
 
 /// Get total disk space used by LLM models
-pub async fn get_llm_models_size(models_dir: &PathBuf) -> Result<u64> {
+pub async fn get_llm_models_size(models_dir: &Path) -> Result<u64> {
     let llm_dir = models_dir.join("llm");
     if !llm_dir.exists() {
         return Ok(0);
@@ -155,7 +159,7 @@ pub async fn get_llm_models_size(models_dir: &PathBuf) -> Result<u64> {
 }
 
 /// List all downloaded LLM models
-pub async fn list_downloaded_models(models_dir: &PathBuf) -> Vec<LlmModel> {
+pub async fn list_downloaded_models(models_dir: &Path) -> Vec<LlmModel> {
     LlmModel::all()
         .iter()
         .filter(|model| is_llm_downloaded(**model, models_dir))
@@ -164,8 +168,10 @@ pub async fn list_downloaded_models(models_dir: &PathBuf) -> Vec<LlmModel> {
 }
 
 /// Delete a downloaded LLM model
-pub async fn delete_llm_model(model: LlmModel, models_dir: &PathBuf) -> Result<()> {
-    let path = models_dir.join(model.model_dir_name()).join(model.filename());
+pub async fn delete_llm_model(model: LlmModel, models_dir: &Path) -> Result<()> {
+    let path = models_dir
+        .join(model.model_dir_name())
+        .join(model.filename());
     if path.exists() {
         fs::remove_file(&path)
             .await

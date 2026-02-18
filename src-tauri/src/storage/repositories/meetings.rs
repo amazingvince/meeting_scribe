@@ -98,7 +98,10 @@ impl MeetingRepository {
 
             // Order and pagination
             query.push_str(" ORDER BY created_at DESC");
-            query.push_str(&format!(" LIMIT {} OFFSET {}", options.limit, options.offset));
+            query.push_str(&format!(
+                " LIMIT {} OFFSET {}",
+                options.limit, options.offset
+            ));
 
             let mut stmt = conn.prepare(&query)?;
 
@@ -428,9 +431,7 @@ mod tests {
         repo.create(&Meeting::new("Client Call")).unwrap();
         repo.create(&Meeting::new("Team Retrospective")).unwrap();
 
-        let team_meetings = repo
-            .list(ListOptions::new().with_search("Team"))
-            .unwrap();
+        let team_meetings = repo.list(ListOptions::new().with_search("Team")).unwrap();
         assert_eq!(team_meetings.len(), 2);
     }
 

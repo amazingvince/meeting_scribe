@@ -79,12 +79,12 @@ impl SpeechSegment {
 
     /// Get start sample index
     pub fn start_sample(&self, sample_rate: u32) -> usize {
-        ((self.start_ms as u64 * sample_rate as u64) / 1000) as usize
+        ((self.start_ms * sample_rate as u64) / 1000) as usize
     }
 
     /// Get end sample index
     pub fn end_sample(&self, sample_rate: u32) -> usize {
-        ((self.end_ms as u64 * sample_rate as u64) / 1000) as usize
+        ((self.end_ms * sample_rate as u64) / 1000) as usize
     }
 }
 
@@ -98,6 +98,8 @@ pub struct Vad {
 impl Vad {
     /// Create a new VAD instance
     pub fn new(config: VadConfig) -> Result<Self> {
+        crate::ensure_onnx_runtime_env();
+
         let detector = VoiceActivityDetector::builder()
             .sample_rate(WHISPER_SAMPLE_RATE)
             .chunk_size(512usize) // Required for 16kHz
@@ -231,8 +233,7 @@ impl Vad {
             if gap <= self.config.min_silence_duration_ms as u64 {
                 // Merge segments
                 current.end_ms = segment.end_ms;
-                current.avg_probability =
-                    (current.avg_probability + segment.avg_probability) / 2.0;
+                current.avg_probability = (current.avg_probability + segment.avg_probability) / 2.0;
             } else {
                 merged.push(current);
                 current = segment;

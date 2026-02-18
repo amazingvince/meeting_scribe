@@ -14,7 +14,7 @@ use crate::audio::pipeline::{AudioPipeline, PipelineConfig};
 use crate::models::TranscriptionBackend;
 
 use super::speaker::{format_transcript, merge_transcripts, TranscriptStats};
-use super::transcription::{Speaker, TranscriptionService, TranscriptSegment};
+use super::transcription::{Speaker, TranscriptSegment, TranscriptionService};
 
 /// Result of processing a complete meeting
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -97,7 +97,7 @@ pub enum ProcessingStage {
 
 /// Meeting processor combining audio pipeline and transcription
 pub struct MeetingProcessor {
-    audio_pipeline: AudioPipeline,
+    _audio_pipeline: AudioPipeline,
     transcription: Arc<TranscriptionService>,
 }
 
@@ -107,7 +107,7 @@ impl MeetingProcessor {
         let audio_pipeline = AudioPipeline::new(PipelineConfig::default())?;
 
         Ok(Self {
-            audio_pipeline,
+            _audio_pipeline: audio_pipeline,
             transcription,
         })
     }
@@ -275,9 +275,8 @@ impl MeetingProcessor {
         );
 
         // Preprocess audio files
-        let (preprocessed_mic, preprocessed_system) = self
-            .preprocess_audio(raw_mic_path, raw_system_path)
-            .await?;
+        let (preprocessed_mic, preprocessed_system) =
+            self.preprocess_audio(raw_mic_path, raw_system_path).await?;
 
         // Continue with regular processing
         self.process_meeting(
@@ -318,7 +317,10 @@ impl MeetingProcessor {
 }
 
 /// Create a progress channel for processing updates
-pub fn create_progress_channel() -> (mpsc::Sender<ProcessingProgress>, mpsc::Receiver<ProcessingProgress>) {
+pub fn create_progress_channel() -> (
+    mpsc::Sender<ProcessingProgress>,
+    mpsc::Receiver<ProcessingProgress>,
+) {
     mpsc::channel(32)
 }
 

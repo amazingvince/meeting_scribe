@@ -10,6 +10,7 @@ import type {
   RecordingResult,
 } from '../types';
 import * as api from '../lib/tauri';
+import { useSettingsStore } from './settingsStore';
 
 interface RecordingStore {
   // State
@@ -44,7 +45,14 @@ export const useRecordingStore = create<RecordingStore>((set, get) => ({
   startRecording: async () => {
     set({ isLoading: true, error: null });
     try {
-      const meetingId = await api.startRecording();
+      const settings = useSettingsStore.getState();
+      const loopbackDevice = settings.macSystemAudioDevice.trim();
+      const meetingId = await api.startRecording({
+        macSystemAudio: {
+          backend: settings.macSystemAudioBackend,
+          loopbackDevice: loopbackDevice.length > 0 ? loopbackDevice : undefined,
+        },
+      });
       set({
         state: 'Recording',
         meetingId,

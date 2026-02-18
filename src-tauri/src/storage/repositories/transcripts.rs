@@ -148,7 +148,10 @@ impl TranscriptRepository {
             )?;
 
             let segments = stmt
-                .query_map(params![meeting_id, speaker_to_str(speaker)], Self::row_to_segment)?
+                .query_map(
+                    params![meeting_id, speaker_to_str(speaker)],
+                    Self::row_to_segment,
+                )?
                 .collect::<Result<Vec<_>, _>>()?;
 
             Ok(segments)
@@ -185,9 +188,8 @@ impl TranscriptRepository {
             let tx = conn.transaction()?;
 
             {
-                let mut stmt = tx.prepare(
-                    "UPDATE transcript_segments SET embedding_id = ? WHERE id = ?"
-                )?;
+                let mut stmt =
+                    tx.prepare("UPDATE transcript_segments SET embedding_id = ? WHERE id = ?")?;
 
                 for (id, embedding_id) in updates {
                     stmt.execute(params![embedding_id, id])?;

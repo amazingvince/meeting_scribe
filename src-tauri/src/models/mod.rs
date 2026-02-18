@@ -24,9 +24,10 @@ use std::sync::Arc;
 use tracing::info;
 
 /// Status of a model
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub enum ModelStatus {
     /// Model is not downloaded
+    #[default]
     NotDownloaded,
     /// Model is currently downloading
     Downloading { percent: u8 },
@@ -34,12 +35,6 @@ pub enum ModelStatus {
     Ready,
     /// Model download or load failed
     Error(String),
-}
-
-impl Default for ModelStatus {
-    fn default() -> Self {
-        ModelStatus::NotDownloaded
-    }
 }
 
 /// Manages model downloads and status

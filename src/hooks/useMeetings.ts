@@ -56,6 +56,7 @@ export function useMeetings(options: UseMeetingsOptions = {}) {
     isLoadingTranscript: store.isLoadingTranscript,
     error: store.error,
     searchQuery: store.searchQuery,
+    searchMatches: store.searchMatches,
     statusFilter: store.statusFilter,
 
     // Actions

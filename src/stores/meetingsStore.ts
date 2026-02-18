@@ -4,12 +4,63 @@
  */
 
 import { create } from 'zustand';
-import type { Meeting, MeetingStatus, TranscriptSegment } from '../types';
+import type {
+  Meeting,
+  MeetingStatus,
+  SemanticSearchResult,
+  TranscriptSegment,
+} from '../types';
 import * as api from '../lib/tauri';
+
+const DEFAULT_LIST_LIMIT = 100;
+const HYBRID_SEARCH_LIMIT = 240;
+const HYBRID_SEARCH_CANDIDATE_LIMIT = 600;
+
+function compactSnippet(text: string, maxChars = 220): string {
+  const compact = text.replace(/\s+/g, ' ').trim();
+  if (compact.length <= maxChars) {
+    return compact;
+  }
+  return `${compact.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+function titleMatchBoost(query: string, title: string): number {
+  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedTitle = title.toLowerCase();
+  if (!normalizedQuery || !normalizedTitle.includes(normalizedQuery)) {
+    return 0;
+  }
+
+  // Favor stronger title matches while keeping transcript-based ranking dominant.
+  const coverage = normalizedQuery.length / Math.max(normalizedTitle.length, 8);
+  return 0.08 + Math.min(coverage, 0.24);
+}
+
+export interface MeetingSearchMatch {
+  snippet: string;
+  startMs: number | null;
+  source: 'hybrid' | 'title';
+}
+
+interface RankedMeeting {
+  meeting: Meeting;
+  score: number;
+  match: MeetingSearchMatch;
+}
+
+function rankHybridHit(hit: SemanticSearchResult, rankIndex: number): number {
+  const rankScore = 1 / (rankIndex + 1);
+  const similarityScore = Number.isFinite(hit.similarity)
+    ? Math.max(0, hit.similarity)
+    : 0;
+  const sourceBoost = hit.chunk_type === 'fts' ? 0.1 : 0;
+  return rankScore + similarityScore * 0.35 + sourceBoost;
+}
 
 interface MeetingsStore {
   // State
   meetings: Meeting[];
+  searchMatches: Record<string, MeetingSearchMatch>;
   selectedMeeting: Meeting | null;
   selectedTranscript: TranscriptSegment[];
   isLoading: boolean;
@@ -17,6 +68,7 @@ interface MeetingsStore {
   error: string | null;
   searchQuery: string;
   statusFilter: MeetingStatus | null;
+  meetingsRequestSeq: number;
 
   // Actions
   fetchMeetings: () => Promise<void>;
@@ -34,6 +86,7 @@ interface MeetingsStore {
 export const useMeetingsStore = create<MeetingsStore>((set, get) => ({
   // Initial state
   meetings: [],
+  searchMatches: {},
   selectedMeeting: null,
   selectedTranscript: [],
   isLoading: false,
@@ -41,23 +94,109 @@ export const useMeetingsStore = create<MeetingsStore>((set, get) => ({
   error: null,
   searchQuery: '',
   statusFilter: null,
+  meetingsRequestSeq: 0,
 
   fetchMeetings: async () => {
+    const requestSeq = get().meetingsRequestSeq + 1;
     const { searchQuery, statusFilter } = get();
-    set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null, meetingsRequestSeq: requestSeq });
 
     try {
-      const meetings = await api.listMeetings({
-        status: statusFilter ?? undefined,
-        search: searchQuery || undefined,
-        limit: 100,
+      const trimmedQuery = searchQuery.trim();
+      const hasSearch = trimmedQuery.length > 0;
+      let meetings: Meeting[] = [];
+      let searchMatches: Record<string, MeetingSearchMatch> = {};
+
+      if (!hasSearch) {
+        meetings = await api.listMeetings({
+          status: statusFilter ?? undefined,
+          limit: DEFAULT_LIST_LIMIT,
+        });
+      } else {
+        const [candidateMeetings, hybridResults] = await Promise.all([
+          api.listMeetings({
+            status: statusFilter ?? undefined,
+            limit: HYBRID_SEARCH_CANDIDATE_LIMIT,
+          }),
+          api.hybridSearch(trimmedQuery, HYBRID_SEARCH_LIMIT),
+        ]);
+
+        const rankedByMeetingId = new Map<string, RankedMeeting>();
+        const meetingById = new Map<string, Meeting>();
+        for (const meeting of candidateMeetings) {
+          meetingById.set(meeting.id, meeting);
+        }
+
+        for (const [rankIndex, hit] of hybridResults.entries()) {
+          const meeting = meetingById.get(hit.meeting_id);
+          if (!meeting) {
+            continue;
+          }
+
+          const nextScore = rankHybridHit(hit, rankIndex);
+          const existing = rankedByMeetingId.get(hit.meeting_id);
+          const match: MeetingSearchMatch = {
+            snippet: compactSnippet(hit.text),
+            startMs: hit.start_ms ?? null,
+            source: 'hybrid',
+          };
+
+          if (!existing || nextScore > existing.score) {
+            rankedByMeetingId.set(hit.meeting_id, {
+              meeting,
+              score: nextScore,
+              match,
+            });
+          }
+        }
+
+        for (const meeting of candidateMeetings) {
+          const boost = titleMatchBoost(trimmedQuery, meeting.title);
+          if (boost <= 0) {
+            continue;
+          }
+
+          const existing = rankedByMeetingId.get(meeting.id);
+          if (existing) {
+            existing.score += boost;
+            continue;
+          }
+
+          rankedByMeetingId.set(meeting.id, {
+            meeting,
+            score: boost,
+            match: {
+              snippet: compactSnippet(meeting.title),
+              startMs: null,
+              source: 'title',
+            },
+          });
+        }
+
+        const ranked = [...rankedByMeetingId.values()].sort(
+          (a, b) => b.score - a.score || b.meeting.created_at - a.meeting.created_at
+        );
+        meetings = ranked.map((entry) => entry.meeting);
+        searchMatches = Object.fromEntries(
+          ranked.map((entry) => [entry.meeting.id, entry.match])
+        );
+      }
+
+      set((state) => {
+        if (state.meetingsRequestSeq !== requestSeq) {
+          return {};
+        }
+        return { meetings, searchMatches, isLoading: false };
       });
-      set({ meetings, isLoading: false });
     } catch (e) {
-      set({
-        error: e instanceof Error ? e.message : String(e),
-        isLoading: false,
-      });
+      set((state) => ({
+        ...(state.meetingsRequestSeq === requestSeq
+          ? {
+              error: e instanceof Error ? e.message : String(e),
+              isLoading: false,
+            }
+          : {}),
+      }));
     }
   },
 
@@ -152,6 +291,9 @@ export const useMeetingsStore = create<MeetingsStore>((set, get) => ({
       if (deleted) {
         set((state) => ({
           meetings: state.meetings.filter((m) => m.id !== id),
+          searchMatches: Object.fromEntries(
+            Object.entries(state.searchMatches).filter(([meetingId]) => meetingId !== id)
+          ),
           selectedMeeting:
             state.selectedMeeting?.id === id ? null : state.selectedMeeting,
           selectedTranscript:

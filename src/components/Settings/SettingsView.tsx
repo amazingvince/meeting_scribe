@@ -5,6 +5,9 @@
 import { useState, useEffect } from 'react';
 import { Info } from 'lucide-react';
 import { Card, CardTitle } from '../ui/Card';
+import { Skeleton } from '../ui/Skeleton';
+import { AudioSettings } from './AudioSettings';
+import { AppearanceSettings } from './AppearanceSettings';
 import { ModelSettings } from './ModelSettings';
 import { StorageSettings } from './StorageSettings';
 import * as api from '../../lib/tauri';
@@ -12,9 +15,11 @@ import type { AppInfo } from '../../lib/tauri';
 
 export function SettingsView() {
   const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
+  const [isLoadingAppInfo, setIsLoadingAppInfo] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
+    setIsLoadingAppInfo(true);
 
     api
       .getAppInfo()
@@ -23,6 +28,9 @@ export function SettingsView() {
       })
       .catch((e) => {
         console.warn('Failed to load app info:', e);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingAppInfo(false);
       });
 
     return () => {
@@ -36,34 +44,28 @@ export function SettingsView() {
         Settings
       </h1>
 
-      {/* Model Settings */}
-      <section>
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Models
-        </h2>
-        <ModelSettings />
-      </section>
-
-      {/* Storage */}
-      <section>
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Storage
-        </h2>
-        <StorageSettings />
-      </section>
+      <AppearanceSettings />
+      <ModelSettings />
+      <AudioSettings platform={appInfo?.platform} />
+      <StorageSettings />
 
       {/* App Info */}
       <section>
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          About
-        </h2>
         <Card>
           <div className="flex items-center gap-2 mb-4">
             <Info className="w-5 h-5 text-gray-500" />
-            <CardTitle>Application Info</CardTitle>
+            <CardTitle>About</CardTitle>
           </div>
 
-          {appInfo && (
+          {isLoadingAppInfo && (
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-3/4" />
+            </div>
+          )}
+
+          {!isLoadingAppInfo && appInfo && (
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-500 dark:text-gray-400">Version</span>
@@ -86,6 +88,12 @@ export function SettingsView() {
                 </span>
               </div>
             </div>
+          )}
+
+          {!isLoadingAppInfo && !appInfo && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Unable to load application info.
+            </p>
           )}
         </Card>
       </section>

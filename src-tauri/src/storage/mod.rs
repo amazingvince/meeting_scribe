@@ -20,10 +20,15 @@ pub mod vectors;
 pub use models::{
     DatabaseStats, Meeting, MeetingStatus, Note, StorageStats, StoredSegment, Summary, SummaryType,
 };
-pub use repositories::{ListOptions, MeetingRepository, NotesRepository, Repositories, SummariesRepository, TranscriptRepository};
+pub use repositories::{
+    ListOptions, MeetingRepository, NotesRepository, Repositories, SummariesRepository,
+    TranscriptRepository,
+};
 pub use search::{SearchHit, SearchHitWithSnippet, SearchService};
 pub use sqlite::Database;
-pub use vectors::{EmbeddingRecord, SearchResult as VectorSearchResult, VectorStore, EMBEDDING_DIM};
+pub use vectors::{
+    EmbeddingRecord, SearchResult as VectorSearchResult, VectorStore, EMBEDDING_DIM,
+};
 
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -43,7 +48,8 @@ pub async fn initialize_storage(data_dir: impl AsRef<Path>) -> Result<StorageSta
     // SQLite database
     let db_path = data_path.join("meetings.db");
     let db = Database::open(&db_path).context("Failed to open SQLite database")?;
-    db.initialize().context("Failed to initialize database schema")?;
+    db.initialize()
+        .context("Failed to initialize database schema")?;
 
     // Vector store
     let vectors_path = data_path.join("vectors");

@@ -198,8 +198,13 @@ impl ModelDownloader {
     {
         // Download to temp file
         let temp_path = self.models_dir.join(format!("{}.tmp", model_info.id));
-        self.download_file(&model_info.download_url, &temp_path, model_info, progress_callback)
-            .await?;
+        self.download_file(
+            &model_info.download_url,
+            &temp_path,
+            model_info,
+            progress_callback,
+        )
+        .await?;
 
         // Report extracting
         progress_callback(DownloadProgress {
@@ -324,7 +329,8 @@ impl ModelDownloader {
             fs::create_dir_all(parent).await?;
         }
 
-        let mut file = std::fs::File::create(dest_path).context("Failed to create download file")?;
+        let mut file =
+            std::fs::File::create(dest_path).context("Failed to create download file")?;
 
         let mut stream = response.bytes_stream();
         let mut downloaded: u64 = 0;
@@ -410,8 +416,7 @@ impl ModelDownloader {
 
         // Run extraction in blocking task
         tokio::task::spawn_blocking(move || {
-            let file =
-                std::fs::File::open(&archive_path).context("Failed to open archive file")?;
+            let file = std::fs::File::open(&archive_path).context("Failed to open archive file")?;
             let decoder = GzDecoder::new(file);
             let mut archive = Archive::new(decoder);
 
@@ -435,8 +440,7 @@ impl ModelDownloader {
         let dest_dir = dest_dir.to_path_buf();
 
         tokio::task::spawn_blocking(move || {
-            let file =
-                std::fs::File::open(&archive_path).context("Failed to open archive file")?;
+            let file = std::fs::File::open(&archive_path).context("Failed to open archive file")?;
             let decoder = BzDecoder::new(file);
             let mut archive = Archive::new(decoder);
 
@@ -459,8 +463,7 @@ impl ModelDownloader {
         let dest_dir = dest_dir.to_path_buf();
 
         tokio::task::spawn_blocking(move || {
-            let file =
-                std::fs::File::open(&archive_path).context("Failed to open archive file")?;
+            let file = std::fs::File::open(&archive_path).context("Failed to open archive file")?;
             let mut archive = ZipArchive::new(file).context("Failed to read zip archive")?;
 
             archive

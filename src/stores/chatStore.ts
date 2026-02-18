@@ -23,6 +23,29 @@ function getHistoryForLlm(messages: ChatMessage[]): ChatHistoryMessage[] {
     }));
 }
 
+function mapSearchResultsToSources(results: SemanticSearchResult[]): ChatSource[] {
+  return results.map((r) => ({
+    meeting_id: r.meeting_id,
+    meeting_title: r.meeting_title,
+    excerpt: r.text,
+    start_ms: r.start_ms,
+    similarity: r.similarity,
+  }));
+}
+
+async function searchInMeetings(
+  query: string,
+  meetingIds: string[],
+  perMeetingLimit: number
+): Promise<SemanticSearchResult[]> {
+  const results = await Promise.all(
+    meetingIds.map((meetingId) => api.semanticSearch(query, perMeetingLimit, meetingId))
+  );
+  return results
+    .flat()
+    .sort((a, b) => b.similarity - a.similarity);
+}
+
 interface ChatStore {
   // State
   messages: ChatMessage[];
@@ -86,20 +109,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       let answer: string;
 
       if (selectedMeetingIds.length > 0) {
-        // Ask about specific meeting(s)
-        // For now, we'll use the first selected meeting
-        const meetingId = selectedMeetingIds[0];
+        // Search across all selected meetings and choose the most relevant one for context.
+        const searchResults = await searchInMeetings(content, selectedMeetingIds, 3);
+        const meetingId = searchResults[0]?.meeting_id ?? selectedMeetingIds[0];
         answer = await api.askMeetingQuestion(meetingId, content, history);
-
-        // Get semantic search results for sources
-        const searchResults = await api.semanticSearch(content, 3, meetingId);
-        sources = searchResults.map((r) => ({
-          meeting_id: r.meeting_id,
-          meeting_title: r.meeting_title,
-          excerpt: r.text,
-          start_ms: r.start_ms,
-          similarity: r.similarity,
-        }));
+        sources = mapSearchResultsToSources(searchResults.slice(0, 8));
       } else {
         // General search across all meetings
         const searchResults = await api.semanticSearch(content, 5);
@@ -111,13 +125,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             content,
             history
           );
-          sources = searchResults.map((r) => ({
-            meeting_id: r.meeting_id,
-            meeting_title: r.meeting_title,
-            excerpt: r.text,
-            start_ms: r.start_ms,
-            similarity: r.similarity,
-          }));
+          sources = mapSearchResultsToSources(searchResults);
         } else {
           answer =
             "I couldn't find any relevant information in your meetings. Try asking about a specific topic that was discussed.";
@@ -229,7 +237,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       // Determine which meeting to query
       let meetingId: string | null = null;
       if (selectedMeetingIds.length > 0) {
-        meetingId = selectedMeetingIds[0];
+        const selectedSearchResults = await searchInMeetings(
+          content,
+          selectedMeetingIds,
+          2
+        );
+        meetingId = selectedSearchResults[0]?.meeting_id ?? selectedMeetingIds[0];
       } else {
         // Search for relevant meeting
         const searchResults = await api.semanticSearch(content, 1);

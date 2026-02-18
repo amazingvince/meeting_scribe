@@ -68,7 +68,7 @@ export function NoSearchResultsEmpty() {
     <EmptyState
       icon={<Search className="w-12 h-12" />}
       title="No results found"
-      description="Try adjusting your search terms or filters."
+      description="No transcript/title matches found. Try alternate keywords or broader phrasing."
     />
   );
 }

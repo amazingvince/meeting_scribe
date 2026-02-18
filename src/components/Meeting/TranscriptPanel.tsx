@@ -2,19 +2,23 @@
  * Transcript panel with scrollable transcript segments
  */
 
-import { useMemo, useState, useCallback } from 'react';
-import { RefreshCw } from 'lucide-react';
-import type { TranscriptSegment } from '../../types';
+import { useMemo, useState, useCallback, useEffect } from 'react';
+import { Loader2, RefreshCw } from 'lucide-react';
+import type { MeetingStatus, TranscriptSegment } from '../../types';
 import { NoTranscriptEmpty } from '../ui/EmptyState';
 import { SkeletonText } from '../ui/Skeleton';
 import { Button } from '../ui/Button';
 import { Modal, ModalFooter } from '../ui/Modal';
+import { ProgressBar } from '../ui/Progress';
 import { formatDuration } from '../../utils/format';
+import { useTauriEvent } from '../../hooks';
 import { useMeetingsStore, useSettingsStore, useToastStore } from '../../stores';
+import type { MeetingProcessingProgressEvent } from '../../lib/tauri';
 import * as api from '../../lib/tauri';
 
 interface TranscriptPanelProps {
   meetingId: string;
+  meetingStatus: MeetingStatus;
   segments: TranscriptSegment[];
   audioPathYou?: string | null;
   audioPathOthers?: string | null;
@@ -22,8 +26,24 @@ interface TranscriptPanelProps {
   onTimestampClick?: (ms: number) => void;
 }
 
+function getProcessingStageLabel(stage: string): string {
+  switch (stage) {
+    case 'TranscribingMic':
+      return 'Transcribing microphone audio...';
+    case 'TranscribingSystem':
+      return 'Transcribing system audio...';
+    case 'Merging':
+      return 'Merging transcript channels...';
+    case 'Complete':
+      return 'Transcript processing complete.';
+    default:
+      return 'Processing transcript...';
+  }
+}
+
 export function TranscriptPanel({
   meetingId,
+  meetingStatus,
   segments,
   audioPathYou,
   audioPathOthers,
@@ -33,32 +53,64 @@ export function TranscriptPanel({
   const [isProcessing, setIsProcessing] = useState(false);
   const [showLoadModal, setShowLoadModal] = useState(false);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
+  const [processingProgress, setProcessingProgress] =
+    useState<MeetingProcessingProgressEvent | null>(null);
   const toast = useToastStore();
   const settings = useSettingsStore();
-  const { fetchTranscript } = useMeetingsStore();
+  const { fetchMeeting, fetchTranscript } = useMeetingsStore();
 
-  const hasAudio = audioPathYou || audioPathOthers;
+  const hasAudio = Boolean(audioPathYou || audioPathOthers);
+
+  useEffect(() => {
+    setProcessingProgress(null);
+  }, [meetingId]);
+
+  useTauriEvent<MeetingProcessingProgressEvent>(
+    'meeting-processing-progress',
+    (data) => {
+      if (data.meeting_id !== meetingId) return;
+      setProcessingProgress(data);
+    }
+  );
 
   // Actually perform the transcription
   const doTranscription = useCallback(async () => {
     setIsProcessing(true);
+    setProcessingProgress({
+      meeting_id: meetingId,
+      stage: 'TranscribingMic',
+      percent: 5,
+      message: 'Starting transcription...',
+    });
+
     try {
       await api.processMeeting(
         meetingId,
         audioPathYou ?? undefined,
-        audioPathOthers ?? undefined
+        audioPathOthers ?? undefined,
+        { echoBackend: settings.echoCancellationBackend }
       );
+      await api.updateMeetingStatus(meetingId, 'ready');
+      await fetchMeeting(meetingId);
       await fetchTranscript(meetingId);
       toast.success('Transcript generated successfully');
     } catch (e) {
-      toast.error(
-        'Failed to generate transcript',
-        e instanceof Error ? e.message : String(e)
-      );
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      void api.updateMeetingStatus(meetingId, 'error', errorMessage);
+      toast.error('Failed to generate transcript', errorMessage);
     } finally {
       setIsProcessing(false);
+      setProcessingProgress(null);
     }
-  }, [meetingId, audioPathYou, audioPathOthers, fetchTranscript, toast]);
+  }, [
+    meetingId,
+    audioPathYou,
+    audioPathOthers,
+    fetchMeeting,
+    fetchTranscript,
+    settings.echoCancellationBackend,
+    toast,
+  ]);
 
   // Handle clicking the generate/regenerate button
   const handleGenerateTranscript = useCallback(async () => {
@@ -89,6 +141,43 @@ export function TranscriptPanel({
       setIsLoadingModel(false);
     }
   }, [settings, doTranscription, toast]);
+
+  const hasLiveProcessingProgress = processingProgress !== null;
+  const isActivelyProcessing = isProcessing || hasLiveProcessingProgress;
+  const showProcessingStatus = isActivelyProcessing || meetingStatus === 'processing';
+  const statusLabel = processingProgress
+    ? getProcessingStageLabel(processingProgress.stage)
+    : 'Processing transcript...';
+  const statusMessage =
+    processingProgress?.message ??
+    'This can take a moment depending on audio length and model speed.';
+
+  const processingStatusBlock = showProcessingStatus ? (
+    <div className="px-4 py-3 border-b border-indigo-100 dark:border-indigo-900 bg-indigo-50/60 dark:bg-indigo-900/10">
+      <div className="flex items-center gap-2 text-sm text-indigo-700 dark:text-indigo-300">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        <span className="font-medium">{statusLabel}</span>
+      </div>
+      <p className="mt-1 text-xs text-indigo-600 dark:text-indigo-400">
+        {statusMessage}
+      </p>
+      {processingProgress ? (
+        <div className="mt-2">
+          <ProgressBar
+            value={processingProgress.percent}
+            size="sm"
+            color="indigo"
+            showLabel
+          />
+        </div>
+      ) : (
+        <div className="mt-2 h-1.5 bg-indigo-100 dark:bg-indigo-900/40 rounded-full overflow-hidden">
+          <div className="h-full w-1/3 bg-indigo-500 rounded-full animate-pulse" />
+        </div>
+      )}
+    </div>
+  ) : null;
+
   // Group consecutive segments by speaker
   const groupedSegments = useMemo(() => {
     if (segments.length === 0) return [];
@@ -144,11 +233,13 @@ export function TranscriptPanel({
               size="sm"
               onClick={handleGenerateTranscript}
               isLoading={isProcessing}
+              disabled={isActivelyProcessing}
             >
-              Generate Transcript
+              {isActivelyProcessing ? 'Processing...' : 'Generate Transcript'}
             </Button>
           </div>
         )}
+        {processingStatusBlock}
         <div className="flex-1">
           <NoTranscriptEmpty />
         </div>
@@ -169,50 +260,53 @@ export function TranscriptPanel({
             size="sm"
             onClick={handleGenerateTranscript}
             isLoading={isProcessing}
+            disabled={isActivelyProcessing}
           >
             <RefreshCw className="w-4 h-4 mr-1" />
-            Regenerate
+            {isActivelyProcessing ? 'Processing...' : 'Regenerate'}
           </Button>
         )}
       </div>
 
+      {processingStatusBlock}
+
       {/* Transcript content */}
       <div className="flex-1 p-4 space-y-6 overflow-y-auto">
-      {groupedSegments.map((group, idx) => (
-        <div key={idx} className="space-y-2">
-          <div className="flex items-center gap-3">
-            <span
-              className={`
-                text-sm font-medium px-2 py-0.5 rounded
-                ${
-                  group.speaker === 'You'
-                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
-                    : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                }
-              `}
-            >
-              {group.speaker}
-            </span>
-            <button
-              className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 font-mono"
-              onClick={() => onTimestampClick?.(group.startMs)}
-            >
-              {formatDuration(group.startMs)}
-            </button>
-          </div>
-          <div className="text-gray-700 dark:text-gray-300 leading-relaxed">
-            {group.segments.map((segment, segIdx) => (
+        {groupedSegments.map((group, idx) => (
+          <div key={idx} className="space-y-2">
+            <div className="flex items-center gap-3">
               <span
-                key={segIdx}
-                className="hover:bg-yellow-100 dark:hover:bg-yellow-900/20 cursor-pointer rounded px-0.5"
-                onClick={() => onTimestampClick?.(segment.start_ms)}
+                className={`
+                  text-sm font-medium px-2 py-0.5 rounded
+                  ${
+                    group.speaker === 'You'
+                      ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
+                      : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                  }
+                `}
               >
-                {segment.text}{' '}
+                {group.speaker}
               </span>
-            ))}
+              <button
+                className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 font-mono"
+                onClick={() => onTimestampClick?.(group.startMs)}
+              >
+                {formatDuration(group.startMs)}
+              </button>
+            </div>
+            <div className="text-gray-700 dark:text-gray-300 leading-relaxed">
+              {group.segments.map((segment, segIdx) => (
+                <span
+                  key={segIdx}
+                  className="hover:bg-yellow-100 dark:hover:bg-yellow-900/20 cursor-pointer rounded px-0.5"
+                  onClick={() => onTimestampClick?.(segment.start_ms)}
+                >
+                  {segment.text}{' '}
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
       </div>
 
       {/* Model loading modal */}

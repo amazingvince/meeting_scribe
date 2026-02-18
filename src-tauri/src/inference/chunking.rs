@@ -108,10 +108,7 @@ pub fn chunk_transcript(segments: &[TranscriptSegmentInput], max_chars: usize) -
     let mut chunk_index = 0;
 
     for segment in segments {
-        let speaker_label = segment
-            .speaker
-            .map(|s| speaker_to_label(s))
-            .unwrap_or("SPEAKER");
+        let speaker_label = segment.speaker.map(speaker_to_label).unwrap_or("SPEAKER");
 
         let segment_text = format!("[{}] {}\n", speaker_label, segment.text);
 
@@ -264,7 +261,7 @@ fn split_long_chunk(chunk: &TextChunk, max_chars: usize) -> Vec<TextChunk> {
         // Find a good break point
         let actual_end = if end < text.len() {
             text[start..end]
-                .rfind(|c: char| c == '.' || c == '!' || c == '?' || c == '\n')
+                .rfind(['.', '!', '?', '\n'])
                 .map(|pos| start + pos + 1)
                 .unwrap_or(end)
         } else {

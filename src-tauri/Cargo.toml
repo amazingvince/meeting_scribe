@@ -47,6 +47,7 @@ ringbuf = "0.4"                  # Lock-free ring buffers
 rubato = "0.15"                  # High-quality resampling
 nnnoiseless = "0.5"              # RNNoise denoising (pure Rust)
 aec-rs = "1.0"                   # Acoustic Echo Cancellation (SpeexDSP)
+aec3 = "0.1.5"                   # WebRTC AEC3 (pure Rust port)
 
 # ============================================
 # VOICE ACTIVITY DETECTION
@@ -141,6 +142,7 @@ tempfile = "3"                   # Temporary directories for tests
 [profile.dev]
 opt-level = 1                    # Some optimization in dev for audio
 debug = 1                        # Faster compiles than full debuginfo on Windows
+incremental = false              # Work around Rust/LLVM macOS linker symbol bug on newer toolchains
 
 [profile.dev.package."*"]
 debug = 0                        # Don't generate debuginfo for dependencies

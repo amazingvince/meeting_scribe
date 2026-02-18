@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, SampleRate, Stream, StreamConfig};
 use parking_lot::Mutex;
+use std::env;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -14,6 +15,10 @@ use crate::audio::{AudioChannel, WHISPER_SAMPLE_RATE};
 
 /// Gain multiplier for system audio (loopback is often quieter than mic)
 const SYSTEM_AUDIO_GAIN: f32 = 3.0;
+/// Preserve headroom so gain staging does not clip the AEC reference.
+const SYSTEM_AUDIO_TARGET_PEAK: f32 = 0.95;
+/// Optional env override for selecting a specific loopback output device.
+const SYSTEM_AUDIO_DEVICE_ENV: &str = "MEETING_SCRIBE_SYSTEM_AUDIO_DEVICE";
 
 /// System audio capture using WASAPI loopback
 pub struct SystemAudioCapture {
@@ -43,13 +48,14 @@ impl SystemAudioCapture {
         }
 
         // Use WASAPI host for loopback support
-        let host = cpal::host_from_id(cpal::HostId::Wasapi)
-            .context("WASAPI host not available")?;
+        let host = cpal::host_from_id(cpal::HostId::Wasapi).context("WASAPI host not available")?;
 
         // Get default output device for loopback
-        let device = host
-            .default_output_device()
-            .context("No output device available for loopback")?;
+        let preferred_device = env::var(SYSTEM_AUDIO_DEVICE_ENV)
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let device = select_output_device(&host, preferred_device.as_deref())?;
 
         let device_name = device.name().unwrap_or_else(|_| "Unknown".to_string());
         info!("Using loopback device: {}", device_name);
@@ -94,12 +100,30 @@ impl SystemAudioCapture {
         let err_fn = |err| error!("System audio stream error: {}", err);
 
         let stream = match sample_format {
-            SampleFormat::F32 => {
-                build_stream::<f32>(&device, config, buffer, resampler, source_channels_count, err_fn)?
-            }
-            SampleFormat::I16 => {
-                build_stream::<i16>(&device, config, buffer, resampler, source_channels_count, err_fn)?
-            }
+            SampleFormat::F32 => build_stream::<f32>(
+                &device,
+                config,
+                buffer,
+                resampler,
+                source_channels_count,
+                err_fn,
+            )?,
+            SampleFormat::I16 => build_stream::<i16>(
+                &device,
+                config,
+                buffer,
+                resampler,
+                source_channels_count,
+                err_fn,
+            )?,
+            SampleFormat::U16 => build_stream::<u16>(
+                &device,
+                config,
+                buffer,
+                resampler,
+                source_channels_count,
+                err_fn,
+            )?,
             _ => anyhow::bail!("Unsupported sample format: {:?}", sample_format),
         };
 
@@ -172,10 +196,7 @@ where
         &config,
         move |data: &[T], _: &cpal::InputCallbackInfo| {
             // Convert to f32
-            let samples: Vec<f32> = data
-                .iter()
-                .map(|&s| cpal::Sample::from_sample(s))
-                .collect();
+            let samples: Vec<f32> = data.iter().map(|&s| cpal::Sample::from_sample(s)).collect();
 
             // Convert to mono if stereo
             let mono_samples = if source_channels > 1 {
@@ -187,11 +208,9 @@ where
                 samples
             };
 
-            // Apply gain boost to system audio (loopback is often quieter)
-            let amplified_samples: Vec<f32> = mono_samples
-                .iter()
-                .map(|&s| (s * SYSTEM_AUDIO_GAIN).clamp(-1.0, 1.0))
-                .collect();
+            // Apply gain with dynamic headroom to avoid clipping the captured
+            // signal used later as the AEC reference.
+            let amplified_samples = apply_safe_gain(&mono_samples);
 
             // Resample if needed
             let final_samples = if let Some(ref mut resampler) = *resampler.lock() {
@@ -215,4 +234,73 @@ where
     )?;
 
     Ok(stream)
+}
+
+fn apply_safe_gain(samples: &[f32]) -> Vec<f32> {
+    if samples.is_empty() {
+        return Vec::new();
+    }
+
+    let peak = samples
+        .iter()
+        .fold(0.0f32, |max_abs, s| max_abs.max(s.abs()));
+
+    let safe_gain = if peak > 0.0 {
+        SYSTEM_AUDIO_GAIN.min(SYSTEM_AUDIO_TARGET_PEAK / peak)
+    } else {
+        SYSTEM_AUDIO_GAIN
+    };
+
+    samples
+        .iter()
+        .map(|&s| (s * safe_gain).clamp(-1.0, 1.0))
+        .collect()
+}
+
+fn select_output_device(host: &cpal::Host, preferred_device: Option<&str>) -> Result<cpal::Device> {
+    if let Some(preferred) = preferred_device {
+        let preferred_lower = preferred.to_ascii_lowercase();
+        let mut devices = host
+            .output_devices()
+            .context("Failed to enumerate output devices")?
+            .filter_map(|device| {
+                let name = device.name().ok()?;
+                Some((device, name))
+            })
+            .collect::<Vec<_>>();
+
+        if let Some(index) = devices
+            .iter()
+            .position(|(_, name)| name.to_ascii_lowercase() == preferred_lower)
+        {
+            return Ok(devices.swap_remove(index).0);
+        }
+
+        if let Some(index) = devices
+            .iter()
+            .position(|(_, name)| name.to_ascii_lowercase().contains(&preferred_lower))
+        {
+            return Ok(devices.swap_remove(index).0);
+        }
+
+        let available = if devices.is_empty() {
+            "none".to_string()
+        } else {
+            devices
+                .iter()
+                .map(|(_, name)| name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+
+        anyhow::bail!(
+            "Configured '{}'='{}', but no output device matched. Available output devices: {}",
+            SYSTEM_AUDIO_DEVICE_ENV,
+            preferred,
+            available
+        );
+    }
+
+    host.default_output_device()
+        .context("No output device available for loopback")
 }

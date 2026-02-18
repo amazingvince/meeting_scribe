@@ -4,10 +4,57 @@
 
 import { Cpu, MessageSquare, Search, Database, Loader2 } from 'lucide-react';
 import { Card, CardTitle } from '../ui/Card';
+import { ProgressBar } from '../ui/Progress';
 import { SkeletonCard } from '../ui/Skeleton';
 import { ModelDownloadCard } from './ModelDownloadCard';
 import { useModels } from '../../hooks';
 import { useSettingsStore } from '../../stores';
+import { formatBytes } from '../../utils/format';
+
+function formatDownloadStage(stage: string | null): string {
+  if (!stage) return 'Downloading';
+  return stage
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .trim();
+}
+
+function formatEta(
+  downloadedBytes: number | null,
+  totalBytes: number | null,
+  speedBps: number | null
+): string | null {
+  if (
+    downloadedBytes === null ||
+    totalBytes === null ||
+    speedBps === null ||
+    speedBps <= 0
+  ) {
+    return null;
+  }
+
+  const remaining = Math.max(0, totalBytes - downloadedBytes);
+  const etaSeconds = Math.round(remaining / speedBps);
+  if (!Number.isFinite(etaSeconds) || etaSeconds <= 0) {
+    return null;
+  }
+  if (etaSeconds < 60) {
+    return `${etaSeconds}s left`;
+  }
+  const minutes = Math.floor(etaSeconds / 60);
+  const seconds = etaSeconds % 60;
+  return `${minutes}m ${seconds}s left`;
+}
+
+function getDownloadLabel(model: string | null): string {
+  if (!model) return 'Model';
+  if (model === 'Parakeet') return 'Parakeet Transcription Model';
+  if (model === 'embedding') return 'Embedding Model';
+  if (model === 'Qwen3_4B') return 'Qwen3 4B';
+  if (model === 'Qwen3_1_7B') return 'Qwen3 1.7B';
+  if (model === 'Qwen3_8B') return 'Qwen3 8B';
+  return model;
+}
 
 export function ModelSettings() {
   const {
@@ -26,6 +73,13 @@ export function ModelSettings() {
     isLoadingLlm,
     downloadProgress,
     downloadingModel,
+    downloadStage,
+    downloadMessage,
+    downloadedBytes,
+    downloadTotalBytes,
+    downloadSpeedBps,
+    downloadFile,
+    downloadSourceModelId,
     downloadTranscriptionModel,
     downloadEmbeddingModel,
     downloadLlmModel,
@@ -53,6 +107,26 @@ export function ModelSettings() {
   } = useSettingsStore();
   // Note: refreshModelStatus is called on mount by useModels hook
 
+  const transferSummary =
+    downloadedBytes !== null
+      ? downloadTotalBytes !== null
+        ? `${formatBytes(downloadedBytes)} / ${formatBytes(downloadTotalBytes)}`
+        : `${formatBytes(downloadedBytes)} downloaded`
+      : null;
+  const speedSummary =
+    downloadSpeedBps && downloadSpeedBps > 0
+      ? `${formatBytes(downloadSpeedBps)}/s`
+      : null;
+  const etaSummary = formatEta(downloadedBytes, downloadTotalBytes, downloadSpeedBps);
+  const downloadDetails = {
+    stage: downloadStage,
+    message: downloadMessage,
+    downloadedBytes,
+    totalBytes: downloadTotalBytes,
+    speedBps: downloadSpeedBps,
+    file: downloadFile,
+  };
+
   if (isLoadingModels) {
     return (
       <div className="space-y-4">
@@ -65,6 +139,42 @@ export function ModelSettings() {
 
   return (
     <div className="space-y-6">
+      {isDownloading && downloadingModel && (
+        <Card className="border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-900/10">
+          <div className="flex items-start gap-3">
+            <Loader2 className="w-5 h-5 mt-0.5 text-indigo-600 animate-spin" />
+            <div className="flex-1 min-w-0 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium text-indigo-900 dark:text-indigo-200">
+                  Downloading {getDownloadLabel(downloadingModel)}
+                </p>
+                <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+                  {Math.round(downloadProgress)}%
+                </span>
+              </div>
+              <p className="text-xs text-indigo-700 dark:text-indigo-300">
+                {downloadMessage ?? 'Downloading model files...'}
+              </p>
+              <ProgressBar
+                value={downloadProgress}
+                size="sm"
+                color="indigo"
+                label={formatDownloadStage(downloadStage)}
+              />
+              {(transferSummary || speedSummary || etaSummary || downloadFile || downloadSourceModelId) && (
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-indigo-700 dark:text-indigo-300">
+                  {transferSummary && <span>{transferSummary}</span>}
+                  {speedSummary && <span>{speedSummary}</span>}
+                  {etaSummary && <span>{etaSummary}</span>}
+                  {downloadFile && <span>File: {downloadFile}</span>}
+                  {downloadSourceModelId && <span>ID: {downloadSourceModelId}</span>}
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Transcription Models */}
       <Card>
         <div className="flex items-center gap-2 mb-4">
@@ -79,6 +189,11 @@ export function ModelSettings() {
           downloaded={transcriptionDownloaded}
           isDownloading={isDownloading && downloadingModel === 'Parakeet'}
           downloadProgress={downloadingModel === 'Parakeet' ? downloadProgress : 0}
+          downloadDetails={
+            isDownloading && downloadingModel === 'Parakeet'
+              ? downloadDetails
+              : undefined
+          }
           onDownload={() => downloadTranscriptionModel('Parakeet')}
           onDelete={() => deleteTranscriptionModel('Parakeet')}
           error={errorModel === 'Parakeet' ? error : null}
@@ -101,7 +216,7 @@ export function ModelSettings() {
         <div className="space-y-3">
           {llmModels.map((model) => {
             // Check if this specific model is currently loaded
-            const isThisModelLoaded = llmReady && llmStatus?.current_model === model.name;
+            const isThisModelLoaded = llmReady && llmStatus?.current_model === model.model;
             return (
               <ModelDownloadCard
                 key={model.model}
@@ -111,6 +226,11 @@ export function ModelSettings() {
                 downloaded={model.downloaded}
                 isDownloading={isDownloading && downloadingModel === model.model}
                 downloadProgress={downloadingModel === model.model ? downloadProgress : 0}
+                downloadDetails={
+                  isDownloading && downloadingModel === model.model
+                    ? downloadDetails
+                    : undefined
+                }
                 onDownload={() => downloadLlmModel(model.model)}
                 onDelete={() => deleteLlmModel(model.model)}
                 error={errorModel === model.model ? error : null}
@@ -146,6 +266,11 @@ export function ModelSettings() {
           downloaded={embeddingDownloaded}
           isDownloading={isDownloading && downloadingModel === 'embedding'}
           downloadProgress={downloadingModel === 'embedding' ? downloadProgress : 0}
+          downloadDetails={
+            isDownloading && downloadingModel === 'embedding'
+              ? downloadDetails
+              : undefined
+          }
           onDownload={downloadEmbeddingModel}
           onDelete={deleteEmbeddingModel}
           error={errorModel === 'embedding' ? error : null}
@@ -195,14 +320,13 @@ export function ModelSettings() {
             <p className="text-xs text-gray-500 truncate">
               {batchEmbedProgress.currentMeeting}
             </p>
-            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-              <div
-                className="bg-purple-500 h-2 rounded-full transition-all duration-300"
-                style={{
-                  width: `${((batchEmbedProgress.current + 1) / batchEmbedProgress.total) * 100}%`,
-                }}
-              />
-            </div>
+            <ProgressBar
+              value={batchEmbedProgress.current + 1}
+              max={batchEmbedProgress.total}
+              color="blue"
+              size="sm"
+              showLabel
+            />
           </div>
         ) : (
           <div className="flex items-center justify-between">

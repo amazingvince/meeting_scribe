@@ -3,7 +3,9 @@
 //! Commands for initializing embedding service and processing embeddings.
 
 use crate::inference::chunking::TranscriptSegmentInput;
-use crate::inference::embedding::{cosine_similarity, EmbeddingService, EmbeddingTask, EMBEDDING_DIM, MAX_TOKENS};
+use crate::inference::embedding::{
+    cosine_similarity, EmbeddingService, EmbeddingTask, EMBEDDING_DIM, MAX_TOKENS,
+};
 use crate::inference::embedding_pipeline::{EmbeddingPipeline, ProcessingResult};
 use crate::models::EmbeddingModel;
 use futures::StreamExt;
@@ -190,7 +192,8 @@ async fn download_file_with_progress(
         }
     }
 
-    file.flush().map_err(|e| format!("Failed to flush: {}", e))?;
+    file.flush()
+        .map_err(|e| format!("Failed to flush: {}", e))?;
 
     // Report complete
     let _ = app.emit(
@@ -239,7 +242,9 @@ pub fn embed_text(
     task: String,
 ) -> Result<Vec<f32>, String> {
     let service = embedding.lock();
-    let service = service.as_ref().ok_or("Embedding service not initialized")?;
+    let service = service
+        .as_ref()
+        .ok_or("Embedding service not initialized")?;
 
     let task = match task.as_str() {
         "document" => EmbeddingTask::Document,
@@ -353,7 +358,10 @@ pub async fn semantic_search(
     };
 
     // Build filter
-    let filter = meeting_id.map(|id| format!("meeting_id = '{}'", id));
+    let filter = meeting_id.map(|id| {
+        let escaped = id.replace('\'', "''");
+        format!("meeting_id = '{}'", escaped)
+    });
 
     // Get vector store (clone Arc to release lock before await)
     let vectors = {
@@ -368,10 +376,8 @@ pub async fn semantic_search(
         .map_err(|e| e.to_string())?;
 
     // Collect unique meeting IDs for batch lookup
-    let meeting_ids: std::collections::HashSet<String> = results
-        .iter()
-        .map(|r| r.meeting_id.clone())
-        .collect();
+    let meeting_ids: std::collections::HashSet<String> =
+        results.iter().map(|r| r.meeting_id.clone()).collect();
 
     // Fetch meeting titles from database
     let meeting_titles: std::collections::HashMap<String, String> = {
@@ -546,14 +552,11 @@ pub async fn hybrid_search(
 
     // Sort by RRF score (higher is better)
     let mut merged: Vec<HybridResult> = result_map.into_values().collect();
-    merged.sort_by(|a, b| b.rrf_score.partial_cmp(&a.rrf_score).unwrap());
+    merged.sort_by(|a, b| b.rrf_score.total_cmp(&a.rrf_score));
 
     // Take top N results
-    let final_results: Vec<SemanticSearchResult> = merged
-        .into_iter()
-        .take(limit)
-        .map(|hr| hr.result)
-        .collect();
+    let final_results: Vec<SemanticSearchResult> =
+        merged.into_iter().take(limit).map(|hr| hr.result).collect();
 
     debug!(
         "Hybrid search for '{}': {} vector + {} FTS -> {} merged results",
@@ -604,10 +607,7 @@ pub async fn get_unembedded_meetings(
     // Check which meetings have embeddings
     let mut unembedded = Vec::new();
     for meeting in meetings {
-        let count = vectors
-            .count_for_meeting(&meeting.id)
-            .await
-            .unwrap_or(0);
+        let count = vectors.count_for_meeting(&meeting.id).await.unwrap_or(0);
 
         if count == 0 {
             // Check if meeting has a transcript
@@ -671,7 +671,10 @@ pub async fn batch_embed_meetings(
         BatchEmbedProgress {
             current: 0,
             total,
-            current_meeting: unembedded.first().map(|m| m.title.clone()).unwrap_or_default(),
+            current_meeting: unembedded
+                .first()
+                .map(|m| m.title.clone())
+                .unwrap_or_default(),
             status: "starting".to_string(),
         },
     );

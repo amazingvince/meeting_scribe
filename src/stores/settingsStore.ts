@@ -11,8 +11,22 @@ import type {
   LlmModelInfo,
   LlmStatus,
   EmbeddingInfo,
+  MacSystemAudioBackend,
+  EchoCancellationBackend,
 } from '../types';
 import * as api from '../lib/tauri';
+
+interface DownloadProgressUpdate {
+  progress: number;
+  modelKey?: string;
+  sourceModelId?: string | null;
+  stage?: string | null;
+  message?: string | null;
+  downloadedBytes?: number | null;
+  totalBytes?: number | null;
+  speedBps?: number | null;
+  file?: string | null;
+}
 
 interface SettingsStore {
   // Preferences
@@ -21,6 +35,11 @@ interface SettingsStore {
   llmModel: LlmModel;
   autoProcessMeetings: boolean;
   autoEmbedTranscripts: boolean;
+  liveTranscriptionEnabled: boolean;
+  liveTranscriptionIntervalSec: number;
+  echoCancellationBackend: EchoCancellationBackend;
+  macSystemAudioBackend: MacSystemAudioBackend;
+  macSystemAudioDevice: string;
 
   // Model status (not persisted)
   llmStatus: LlmStatus | null;
@@ -40,6 +59,13 @@ interface SettingsStore {
   isLoadingLlm: boolean;
   downloadProgress: number;
   downloadingModel: string | null;
+  downloadStage: string | null;
+  downloadMessage: string | null;
+  downloadedBytes: number | null;
+  downloadTotalBytes: number | null;
+  downloadSpeedBps: number | null;
+  downloadFile: string | null;
+  downloadSourceModelId: string | null;
   error: string | null;
   errorModel: string | null; // Which model had the error
 
@@ -54,6 +80,11 @@ interface SettingsStore {
   setLlmModel: (model: LlmModel) => void;
   setAutoProcessMeetings: (enabled: boolean) => void;
   setAutoEmbedTranscripts: (enabled: boolean) => void;
+  setLiveTranscriptionEnabled: (enabled: boolean) => void;
+  setLiveTranscriptionIntervalSec: (seconds: number) => void;
+  setEchoCancellationBackend: (backend: EchoCancellationBackend) => void;
+  setMacSystemAudioBackend: (backend: MacSystemAudioBackend) => void;
+  setMacSystemAudioDevice: (device: string) => void;
 
   // Actions - Model management
   refreshModelStatus: () => Promise<void>;
@@ -66,7 +97,7 @@ interface SettingsStore {
   deleteTranscriptionModel: (backend: TranscriptionBackend) => Promise<void>;
   deleteEmbeddingModel: () => Promise<void>;
   deleteLlmModel: (model: LlmModel) => Promise<void>;
-  setDownloadProgress: (progress: number, modelId?: string) => void;
+  setDownloadProgress: (progress: DownloadProgressUpdate) => void;
   clearError: () => void;
 
   // Actions - Batch embedding
@@ -84,6 +115,11 @@ export const useSettingsStore = create<SettingsStore>()(
       llmModel: 'Qwen3_4B',
       autoProcessMeetings: true,
       autoEmbedTranscripts: true,
+      liveTranscriptionEnabled: false,
+      liveTranscriptionIntervalSec: 6,
+      echoCancellationBackend: 'webrtc_aec3',
+      macSystemAudioBackend: 'auto',
+      macSystemAudioDevice: '',
 
       // Model status
       llmStatus: null,
@@ -103,6 +139,13 @@ export const useSettingsStore = create<SettingsStore>()(
       isLoadingLlm: false,
       downloadProgress: 0,
       downloadingModel: null,
+      downloadStage: null,
+      downloadMessage: null,
+      downloadedBytes: null,
+      downloadTotalBytes: null,
+      downloadSpeedBps: null,
+      downloadFile: null,
+      downloadSourceModelId: null,
       error: null,
       errorModel: null,
 
@@ -120,6 +163,16 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ autoProcessMeetings: enabled }),
       setAutoEmbedTranscripts: (enabled) =>
         set({ autoEmbedTranscripts: enabled }),
+      setLiveTranscriptionEnabled: (enabled) =>
+        set({ liveTranscriptionEnabled: enabled }),
+      setLiveTranscriptionIntervalSec: (seconds) =>
+        set({ liveTranscriptionIntervalSec: Math.min(Math.max(Math.round(seconds), 2), 15) }),
+      setEchoCancellationBackend: (backend) =>
+        set({ echoCancellationBackend: backend }),
+      setMacSystemAudioBackend: (backend) =>
+        set({ macSystemAudioBackend: backend }),
+      setMacSystemAudioDevice: (device) =>
+        set({ macSystemAudioDevice: device }),
 
       // Model management
       refreshModelStatus: async () => {
@@ -222,6 +275,13 @@ export const useSettingsStore = create<SettingsStore>()(
           isDownloading: true,
           downloadProgress: 0,
           downloadingModel: backend,
+          downloadStage: 'Preparing',
+          downloadMessage: 'Preparing transcription model download...',
+          downloadedBytes: null,
+          downloadTotalBytes: null,
+          downloadSpeedBps: null,
+          downloadFile: null,
+          downloadSourceModelId: null,
           error: null,
           errorModel: null,
         });
@@ -231,15 +291,23 @@ export const useSettingsStore = create<SettingsStore>()(
             isDownloading: false,
             downloadProgress: 100,
             downloadingModel: null,
+            downloadStage: 'Complete',
+            downloadMessage: 'Transcription model downloaded successfully.',
+            downloadSpeedBps: null,
+            downloadFile: null,
           });
           // Refresh model status to update UI
           await get().refreshModelStatus();
         } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
           set({
-            error: e instanceof Error ? e.message : String(e),
+            error: message,
             errorModel: backend,
             isDownloading: false,
             downloadingModel: null,
+            downloadStage: 'Failed',
+            downloadMessage: message,
+            downloadSpeedBps: null,
           });
         }
       },
@@ -249,6 +317,13 @@ export const useSettingsStore = create<SettingsStore>()(
           isDownloading: true,
           downloadProgress: 0,
           downloadingModel: 'embedding',
+          downloadStage: 'Preparing',
+          downloadMessage: 'Preparing embedding model download...',
+          downloadedBytes: null,
+          downloadTotalBytes: null,
+          downloadSpeedBps: null,
+          downloadFile: null,
+          downloadSourceModelId: null,
           error: null,
           errorModel: null,
         });
@@ -259,17 +334,23 @@ export const useSettingsStore = create<SettingsStore>()(
             isDownloading: false,
             downloadProgress: 100,
             downloadingModel: null,
+            downloadStage: 'Complete',
+            downloadMessage: 'Embedding model downloaded successfully.',
             embeddingDownloaded: true,
             embeddingReady: true,
           });
           // Refresh model status to update UI
           await get().refreshModelStatus();
         } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
           set({
-            error: e instanceof Error ? e.message : String(e),
+            error: message,
             errorModel: 'embedding',
             isDownloading: false,
             downloadingModel: null,
+            downloadStage: 'Failed',
+            downloadMessage: message,
+            downloadSpeedBps: null,
           });
         }
       },
@@ -279,6 +360,13 @@ export const useSettingsStore = create<SettingsStore>()(
           isDownloading: true,
           downloadProgress: 0,
           downloadingModel: model,
+          downloadStage: 'Preparing',
+          downloadMessage: 'Preparing language model download...',
+          downloadedBytes: null,
+          downloadTotalBytes: null,
+          downloadSpeedBps: null,
+          downloadFile: null,
+          downloadSourceModelId: null,
           error: null,
           errorModel: null,
         });
@@ -288,15 +376,23 @@ export const useSettingsStore = create<SettingsStore>()(
             isDownloading: false,
             downloadProgress: 100,
             downloadingModel: null,
+            downloadStage: 'Complete',
+            downloadMessage: 'Language model downloaded successfully.',
+            downloadSpeedBps: null,
+            downloadFile: null,
           });
           // Refresh all model status to update UI
           await get().refreshModelStatus();
         } catch (e) {
+          const message = e instanceof Error ? e.message : String(e);
           set({
-            error: e instanceof Error ? e.message : String(e),
+            error: message,
             errorModel: model,
             isDownloading: false,
             downloadingModel: null,
+            downloadStage: 'Failed',
+            downloadMessage: message,
+            downloadSpeedBps: null,
           });
         }
       },
@@ -344,11 +440,33 @@ export const useSettingsStore = create<SettingsStore>()(
         }
       },
 
-      setDownloadProgress: (progress, modelId) => {
-        set({
-          downloadProgress: progress,
-          downloadingModel: modelId ?? get().downloadingModel,
-        });
+      setDownloadProgress: (update) => {
+        set((state) => ({
+          downloadProgress: Math.min(Math.max(update.progress, 0), 100),
+          downloadingModel: update.modelKey ?? state.downloadingModel,
+          downloadStage:
+            update.stage !== undefined ? update.stage : state.downloadStage,
+          downloadMessage:
+            update.message !== undefined ? update.message : state.downloadMessage,
+          downloadedBytes:
+            update.downloadedBytes !== undefined
+              ? update.downloadedBytes
+              : state.downloadedBytes,
+          downloadTotalBytes:
+            update.totalBytes !== undefined
+              ? update.totalBytes
+              : state.downloadTotalBytes,
+          downloadSpeedBps:
+            update.speedBps !== undefined
+              ? update.speedBps
+              : state.downloadSpeedBps,
+          downloadFile:
+            update.file !== undefined ? update.file : state.downloadFile,
+          downloadSourceModelId:
+            update.sourceModelId !== undefined
+              ? update.sourceModelId
+              : state.downloadSourceModelId,
+        }));
       },
 
       clearError: () => set({ error: null, errorModel: null }),
@@ -400,6 +518,11 @@ export const useSettingsStore = create<SettingsStore>()(
         llmModel: state.llmModel,
         autoProcessMeetings: state.autoProcessMeetings,
         autoEmbedTranscripts: state.autoEmbedTranscripts,
+        liveTranscriptionEnabled: state.liveTranscriptionEnabled,
+        liveTranscriptionIntervalSec: state.liveTranscriptionIntervalSec,
+        echoCancellationBackend: state.echoCancellationBackend,
+        macSystemAudioBackend: state.macSystemAudioBackend,
+        macSystemAudioDevice: state.macSystemAudioDevice,
       }),
     }
   )

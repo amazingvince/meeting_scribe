@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Meeting Scribe needs microphone access to record your voice during meetings.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Meeting Scribe uses screen capture permission to enable future system-audio capture on macOS.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Meeting Scribe captures system audio playback to transcribe other meeting participants.</string>
+</dict>
+</plist>

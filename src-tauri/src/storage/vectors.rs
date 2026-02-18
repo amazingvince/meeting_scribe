@@ -4,8 +4,8 @@
 
 use anyhow::{Context, Result};
 use arrow_array::{
-    types::Float32Type, Array, ArrayRef, FixedSizeListArray, Float32Array, Int64Array,
-    RecordBatch, RecordBatchIterator, StringArray,
+    types::Float32Type, Array, ArrayRef, FixedSizeListArray, Float32Array, Int64Array, RecordBatch,
+    RecordBatchIterator, StringArray,
 };
 use arrow_schema::{DataType, Field, Schema};
 use futures_util::TryStreamExt;
@@ -18,6 +18,10 @@ use tracing::{debug, info};
 
 /// Embedding dimension for EmbeddingGemma (768-dim vectors)
 pub const EMBEDDING_DIM: usize = 768;
+
+fn quote_lance_string(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
 
 /// Vector store for semantic search
 pub struct VectorStore {
@@ -141,12 +145,11 @@ impl VectorStore {
         let chunk_type_array: ArrayRef = Arc::new(StringArray::from(chunk_types));
         let text_array: ArrayRef = Arc::new(StringArray::from(texts));
         let start_ms_array: ArrayRef = Arc::new(Int64Array::from(start_ms_vals));
-        let vector_array: ArrayRef = Arc::new(
-            FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(
-                vectors,
-                EMBEDDING_DIM as i32,
-            ),
-        );
+        let vector_array: ArrayRef = Arc::new(FixedSizeListArray::from_iter_primitive::<
+            Float32Type,
+            _,
+            _,
+        >(vectors, EMBEDDING_DIM as i32));
 
         RecordBatch::try_new(
             Self::embeddings_schema(),
@@ -189,7 +192,10 @@ impl VectorStore {
             query = query.only_if(filter_expr);
         }
 
-        let mut results = query.execute().await.context("Failed to execute vector search")?;
+        let mut results = query
+            .execute()
+            .await
+            .context("Failed to execute vector search")?;
 
         let mut search_results = Vec::new();
 
@@ -246,10 +252,7 @@ impl VectorStore {
             }
         }
 
-        debug!(
-            "Vector search returned {} results",
-            search_results.len()
-        );
+        debug!("Vector search returned {} results", search_results.len());
         Ok(search_results)
     }
 
@@ -259,7 +262,7 @@ impl VectorStore {
 
         // LanceDB delete uses SQL-like filter
         table
-            .delete(&format!("meeting_id = '{}'", meeting_id))
+            .delete(&format!("meeting_id = {}", quote_lance_string(meeting_id)))
             .await
             .context("Failed to delete embeddings")?;
 
@@ -273,7 +276,7 @@ impl VectorStore {
         let table = self.get_table().await?;
 
         table
-            .delete(&format!("id = '{}'", id))
+            .delete(&format!("id = {}", quote_lance_string(id)))
             .await
             .context("Failed to delete embedding")?;
 
@@ -284,14 +287,17 @@ impl VectorStore {
     /// Get embedding count
     pub async fn count(&self) -> Result<u64> {
         let table = self.get_table().await?;
-        let count = table.count_rows(None).await.context("Failed to count embeddings")?;
+        let count = table
+            .count_rows(None)
+            .await
+            .context("Failed to count embeddings")?;
         Ok(count as u64)
     }
 
     /// Get embedding count for a meeting
     pub async fn count_for_meeting(&self, meeting_id: &str) -> Result<u64> {
         let table = self.get_table().await?;
-        let filter = format!("meeting_id = '{}'", meeting_id);
+        let filter = format!("meeting_id = {}", quote_lance_string(meeting_id));
         let count = table
             .count_rows(Some(filter))
             .await
@@ -395,7 +401,9 @@ mod tests {
     }
 
     fn make_test_vector(seed: f32) -> Vec<f32> {
-        (0..EMBEDDING_DIM).map(|i| (i as f32 * seed) % 1.0).collect()
+        (0..EMBEDDING_DIM)
+            .map(|i| (i as f32 * seed) % 1.0)
+            .collect()
     }
 
     #[tokio::test]
@@ -515,11 +523,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_filters_escape_single_quotes_in_meeting_id() {
+        let (_temp, store): (TempDir, VectorStore) = setup_test_store().await;
+        let meeting_id = "meeting-o'hare";
+
+        let records = vec![
+            EmbeddingRecord::new_transcript(
+                meeting_id,
+                "Quoted ID content",
+                0,
+                make_test_vector(0.1),
+            ),
+            EmbeddingRecord::new_transcript("meeting-2", "Other content", 0, make_test_vector(0.2)),
+        ];
+
+        store.add_embeddings(records).await.unwrap();
+
+        let quoted_count: u64 = store.count_for_meeting(meeting_id).await.unwrap();
+        assert_eq!(quoted_count, 1);
+
+        store.delete_meeting_embeddings(meeting_id).await.unwrap();
+
+        let remaining_quoted: u64 = store.count_for_meeting(meeting_id).await.unwrap();
+        assert_eq!(remaining_quoted, 0);
+        let remaining_other: u64 = store.count_for_meeting("meeting-2").await.unwrap();
+        assert_eq!(remaining_other, 1);
+    }
+
+    #[tokio::test]
     async fn test_different_chunk_types() {
         let (_temp, store): (TempDir, VectorStore) = setup_test_store().await;
 
         let records = vec![
-            EmbeddingRecord::new_transcript("meeting-1", "Transcript text", 0, make_test_vector(0.1)),
+            EmbeddingRecord::new_transcript(
+                "meeting-1",
+                "Transcript text",
+                0,
+                make_test_vector(0.1),
+            ),
             EmbeddingRecord::new_note("meeting-1", "Note content", make_test_vector(0.2)),
             EmbeddingRecord::new_summary("meeting-1", "Summary content", make_test_vector(0.3)),
         ];
@@ -530,7 +571,10 @@ mod tests {
         assert_eq!(count, 3);
 
         // Search and check types
-        let results: Vec<SearchResult> = store.search(&make_test_vector(0.2), 10, None).await.unwrap();
+        let results: Vec<SearchResult> = store
+            .search(&make_test_vector(0.2), 10, None)
+            .await
+            .unwrap();
 
         let types: Vec<&str> = results.iter().map(|r| r.chunk_type.as_str()).collect();
         assert!(types.contains(&"transcript"));

@@ -13,7 +13,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 #[cfg(debug_assertions)]
 use tauri::Manager;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -29,6 +29,9 @@ async fn main() {
 
     info!("Starting Meeting Scribe...");
 
+    // Ensure ONNX Runtime is discoverable for Finder-launched macOS app bundles.
+    meeting_scribe_lib::ensure_onnx_runtime_env();
+
     // Initialize app config
     let config = AppConfig::new().expect("Failed to create app config");
     config.ensure_dirs().expect("Failed to create directories");
@@ -37,14 +40,13 @@ async fn main() {
     let recording_session: SharedRecordingSession = Arc::new(Mutex::new(RecordingSession::new()));
 
     // Initialize model manager
-    let model_manager = ModelManager::new(config.models_dir.clone())
-        .expect("Failed to create model manager");
+    let model_manager =
+        ModelManager::new(config.models_dir.clone()).expect("Failed to create model manager");
     model_manager.init_status();
     let model_manager: SharedModelManager = Arc::new(Mutex::new(model_manager));
 
     // Initialize transcription service
-    let transcription_service: SharedTranscriptionService =
-        Arc::new(TranscriptionService::new());
+    let transcription_service: SharedTranscriptionService = Arc::new(TranscriptionService::new());
 
     // Initialize storage (SQLite + LanceDB)
     let storage_state = initialize_storage(&config.data_dir)
@@ -56,8 +58,8 @@ async fn main() {
     let embedding_service: SharedEmbeddingService = Arc::new(Mutex::new(None));
 
     // Initialize LLM service (model loaded on demand)
-    let llm_service = LlmService::new(config.models_dir.clone())
-        .expect("Failed to create LLM service");
+    let llm_service =
+        LlmService::new(config.models_dir.clone()).expect("Failed to create LLM service");
     let llm_service: SharedLlmService = Arc::new(Mutex::new(llm_service));
 
     info!("Models directory: {:?}", config.models_dir);
@@ -92,6 +94,8 @@ async fn main() {
             commands::transcription::get_transcription_config,
             commands::transcription::transcribe_file,
             commands::transcription::process_meeting,
+            commands::transcription::start_meeting_processing,
+            commands::transcription::get_live_transcription_preview,
             commands::transcription::unload_transcription,
             commands::transcription::get_models_dir,
             commands::transcription::is_model_downloaded,
@@ -156,8 +160,11 @@ async fn main() {
 
             #[cfg(debug_assertions)]
             {
-                let window = _app.get_webview_window("main").unwrap();
-                window.open_devtools();
+                if let Some(window) = _app.get_webview_window("main") {
+                    window.open_devtools();
+                } else {
+                    warn!("Main window not found; skipping devtools open");
+                }
             }
 
             Ok(())

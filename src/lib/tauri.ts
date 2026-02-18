@@ -21,7 +21,13 @@ import type {
   // Recording types
   RecordingResult,
   RecordingStateResponse,
+  RecordingStateChangedEvent,
   AudioDevices,
+  StartRecordingOptions,
+  ProcessMeetingOptions,
+  LivePreviewOptions,
+  LiveTranscriptPreview,
+  MeetingProcessingFinishedEvent,
   PreprocessingInfo,
   WaveformUpdate,
   // Model types
@@ -44,8 +50,10 @@ import type {
 // ============================================
 
 /** Start a new recording session */
-export async function startRecording(): Promise<string> {
-  return invoke<string>('start_recording');
+export async function startRecording(
+  options?: StartRecordingOptions
+): Promise<string> {
+  return invoke<string>('start_recording', { options });
 }
 
 /** Stop the current recording */
@@ -343,27 +351,68 @@ export async function transcribeFile(
 }
 
 /** Processing result from transcription */
+export interface TranscriptStats {
+  duration_ms: number;
+  segment_count: number;
+  you_segments: number;
+  others_segments: number;
+  word_count: number;
+  you_words: number;
+  others_words: number;
+  you_talk_ratio: number;
+}
+
+/** Processing result from transcription */
 export interface ProcessingResult {
   meeting_id: string;
-  total_duration_ms: number;
-  mic_segment_count: number;
-  system_segment_count: number;
-  transcript_text: string;
+  transcript: TranscriptSegment[];
+  formatted_text: string;
+  duration_ms: number;
+  speech_ratio: number;
   backend: TranscriptionBackend;
   processing_time_ms: number;
+  stats: TranscriptStats;
 }
 
 /** Process a complete meeting (both mic and system audio) */
 export async function processMeeting(
   meetingId: string,
   micPath?: string,
-  systemPath?: string
+  systemPath?: string,
+  options?: ProcessMeetingOptions
 ): Promise<ProcessingResult> {
   // Tauri v2 expects camelCase keys, converts to snake_case for Rust
   return invoke<ProcessingResult>('process_meeting', {
     meetingId,
     micPath,
     systemPath,
+    options,
+  });
+}
+
+/** Start background processing for a meeting and return immediately */
+export async function startMeetingProcessing(
+  meetingId: string,
+  micPath?: string,
+  systemPath?: string,
+  options?: ProcessMeetingOptions
+): Promise<void> {
+  return invoke<void>('start_meeting_processing', {
+    meetingId,
+    micPath,
+    systemPath,
+    options,
+  });
+}
+
+/** Get rolling live transcript preview while recording */
+export async function getLiveTranscriptionPreview(
+  meetingId: string,
+  options?: LivePreviewOptions
+): Promise<LiveTranscriptPreview> {
+  return invoke<LiveTranscriptPreview>('get_live_transcription_preview', {
+    meetingId,
+    options,
   });
 }
 
@@ -687,15 +736,17 @@ export interface DownloadProgressEvent {
   stage: string;
   percent: number;
   message: string;
+  downloaded_bytes?: number;
+  total_bytes?: number;
+  speed_bps?: number | null;
 }
 
 /** Embedding progress event */
 export interface EmbeddingProgressEvent {
-  meeting_id: string;
   stage: string;
-  progress: number;
-  chunks_processed: number;
-  total_chunks: number;
+  current: number;
+  total: number;
+  message: string;
 }
 
 /** Meeting processing progress event */
@@ -711,6 +762,15 @@ export function onWaveformUpdate(
   callback: (data: WaveformUpdate) => void
 ): Promise<UnlistenFn> {
   return listen<WaveformUpdate>('waveform-update', (event) => {
+    callback(event.payload);
+  });
+}
+
+/** Listen for recording state transitions (idle/recording) */
+export function onRecordingStateChanged(
+  callback: (data: RecordingStateChangedEvent) => void
+): Promise<UnlistenFn> {
+  return listen<RecordingStateChangedEvent>('recording-state-changed', (event) => {
     callback(event.payload);
   });
 }
@@ -760,6 +820,18 @@ export function onMeetingProcessingProgress(
 ): Promise<UnlistenFn> {
   return listen<MeetingProcessingProgressEvent>(
     'meeting-processing-progress',
+    (event) => {
+      callback(event.payload);
+    }
+  );
+}
+
+/** Listen for background meeting-processing completion */
+export function onMeetingProcessingFinished(
+  callback: (data: MeetingProcessingFinishedEvent) => void
+): Promise<UnlistenFn> {
+  return listen<MeetingProcessingFinishedEvent>(
+    'meeting-processing-finished',
     (event) => {
       callback(event.payload);
     }

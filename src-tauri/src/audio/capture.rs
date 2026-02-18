@@ -99,7 +99,10 @@ impl AudioCapture {
         {
             let mut resampler_guard = self.resampler.lock();
             *resampler_guard = if needs_resampling {
-                Some(BufferedResampler::new(self.source_rate, WHISPER_SAMPLE_RATE)?)
+                Some(BufferedResampler::new(
+                    self.source_rate,
+                    WHISPER_SAMPLE_RATE,
+                )?)
             } else {
                 None
             };
@@ -150,10 +153,8 @@ impl AudioCapture {
             &config,
             move |data: &[T], _: &cpal::InputCallbackInfo| {
                 // Convert to f32
-                let samples: Vec<f32> = data
-                    .iter()
-                    .map(|&s| cpal::Sample::from_sample(s))
-                    .collect();
+                let samples: Vec<f32> =
+                    data.iter().map(|&s| cpal::Sample::from_sample(s)).collect();
 
                 // Convert to mono if stereo/multi-channel
                 let mono_samples = if source_channels > 1 {
@@ -394,6 +395,21 @@ pub fn load_wav(path: &std::path::Path) -> Result<Vec<f32>> {
     Ok(mono_samples)
 }
 
+/// Save mono f32 samples to a WAV file at whisper sample rate.
+///
+/// Samples are expected in range [-1.0, 1.0] and are clamped when written.
+pub fn save_wav(path: &std::path::Path, samples: &[f32]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create parent directory for {}", path.display()))?;
+    }
+
+    let mut recorder = AudioRecorder::new(path.to_path_buf())?;
+    recorder.write_samples(samples)?;
+    recorder.finalize()?;
+    Ok(())
+}
+
 /// Chunk size for the resampler - balance between latency and efficiency
 const RESAMPLER_CHUNK_SIZE: usize = 1024;
 
@@ -500,6 +516,7 @@ mod tests {
     use super::*;
     use std::thread;
     use std::time::Duration;
+    use tempfile::TempDir;
 
     #[test]
     fn test_list_devices() {
@@ -527,5 +544,21 @@ mod tests {
 
         // Should have approximately 16000 samples for 1 second at 16kHz
         assert!(samples.len() > 10000);
+    }
+
+    #[test]
+    fn test_save_and_load_wav_roundtrip() {
+        let temp = TempDir::new().unwrap();
+        let wav_path = temp.path().join("roundtrip.wav");
+
+        let input = vec![0.0_f32, 0.25, -0.25, 0.8, -0.8];
+        save_wav(&wav_path, &input).unwrap();
+
+        let output = load_wav(&wav_path).unwrap();
+        assert_eq!(output.len(), input.len());
+        // Int16 quantization introduces tiny error; keep tolerance small.
+        for (in_sample, out_sample) in input.iter().zip(output.iter()) {
+            assert!((in_sample - out_sample).abs() < 1e-3);
+        }
     }
 }

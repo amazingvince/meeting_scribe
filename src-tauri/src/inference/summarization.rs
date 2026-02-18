@@ -42,17 +42,13 @@ pub struct ActionItem {
 }
 
 /// Priority level for action items
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum Priority {
     High,
+    #[default]
     Medium,
     Low,
-}
-
-impl Default for Priority {
-    fn default() -> Self {
-        Priority::Medium
-    }
 }
 
 /// Raw action item format from LLM JSON output
@@ -252,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_summary_type_variants() {
-        let types = vec![
+        let types = [
             SummaryType::Full,
             SummaryType::Brief,
             SummaryType::ActionItems,
@@ -264,7 +260,8 @@ mod tests {
 
     #[test]
     fn test_action_item_json_parsing() {
-        let json = r#"[{"task": "Review", "owner": "John", "deadline": "Friday", "priority": "High"}]"#;
+        let json =
+            r#"[{"task": "Review", "owner": "John", "deadline": "Friday", "priority": "High"}]"#;
         let items: Vec<ActionItemRaw> = serde_json::from_str(json).unwrap();
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].task, "Review");
@@ -272,8 +269,7 @@ mod tests {
 
     #[test]
     fn test_action_item_json_empty_fields() {
-        let json =
-            r#"[{"task": "Task", "owner": "Unassigned", "deadline": "Not specified", "priority": "medium"}]"#;
+        let json = r#"[{"task": "Task", "owner": "Unassigned", "deadline": "Not specified", "priority": "medium"}]"#;
         let items: Vec<ActionItemRaw> = serde_json::from_str(json).unwrap();
         let action = ActionItem {
             task: items[0].task.clone(),

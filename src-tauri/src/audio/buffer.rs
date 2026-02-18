@@ -43,6 +43,18 @@ impl AudioBuffer {
         buffer.iter().take(available).copied().collect()
     }
 
+    /// Read the most recent samples without consuming them.
+    pub fn peek_latest_samples(&self, max_samples: usize) -> Vec<f32> {
+        let buffer = self.buffer.read();
+        let occupied = buffer.occupied_len();
+        if occupied == 0 {
+            return Vec::new();
+        }
+        let to_take = occupied.min(max_samples);
+        let to_skip = occupied.saturating_sub(to_take);
+        buffer.iter().skip(to_skip).copied().collect()
+    }
+
     /// Consume and return all samples
     pub fn drain_samples(&self) -> Vec<f32> {
         let mut buffer = self.buffer.write();
@@ -86,14 +98,23 @@ impl Clone for AudioBuffer {
 /// Manager for both audio channels
 pub struct AudioBufferManager {
     pub mic: AudioBuffer,
+    pub mic_clean: AudioBuffer,
     pub system: AudioBuffer,
+    /// Rolling preview buffer (cleaned mic, not drained by recorder writes).
+    pub mic_preview: AudioBuffer,
+    /// Rolling preview buffer (system audio, not drained by recorder writes).
+    pub system_preview: AudioBuffer,
 }
 
 impl AudioBufferManager {
     pub fn new() -> Self {
         Self {
             mic: AudioBuffer::new(AudioChannel::Mic),
+            // Dedicated cleaned-mic stream for playback while preserving raw mic.
+            mic_clean: AudioBuffer::new(AudioChannel::Mic),
             system: AudioBuffer::new(AudioChannel::System),
+            mic_preview: AudioBuffer::new(AudioChannel::Mic),
+            system_preview: AudioBuffer::new(AudioChannel::System),
         }
     }
 
@@ -108,7 +129,10 @@ impl AudioBufferManager {
     /// Clear all buffers
     pub fn clear_all(&self) {
         self.mic.clear();
+        self.mic_clean.clear();
         self.system.clear();
+        self.mic_preview.clear();
+        self.system_preview.clear();
     }
 }
 
@@ -149,6 +173,15 @@ mod tests {
     }
 
     #[test]
+    fn test_buffer_peek_latest() {
+        let buffer = AudioBuffer::new(AudioChannel::Mic);
+        buffer.push_samples(&[0.1, 0.2, 0.3, 0.4, 0.5]);
+
+        let latest = buffer.peek_latest_samples(3);
+        assert_eq!(latest, vec![0.3, 0.4, 0.5]);
+    }
+
+    #[test]
     fn test_buffer_overflow() {
         let buffer = AudioBuffer::new(AudioChannel::Mic);
 
@@ -168,13 +201,22 @@ mod tests {
         let manager = AudioBufferManager::new();
 
         manager.mic.push_samples(&[0.1, 0.2]);
+        manager.mic_clean.push_samples(&[0.15, 0.25]);
         manager.system.push_samples(&[0.3, 0.4]);
+        manager.mic_preview.push_samples(&[0.11, 0.21]);
+        manager.system_preview.push_samples(&[0.31, 0.41]);
 
         assert_eq!(manager.get(AudioChannel::Mic).len(), 2);
         assert_eq!(manager.get(AudioChannel::System).len(), 2);
+        assert_eq!(manager.mic_clean.len(), 2);
+        assert_eq!(manager.mic_preview.len(), 2);
+        assert_eq!(manager.system_preview.len(), 2);
 
         manager.clear_all();
         assert!(manager.mic.is_empty());
+        assert!(manager.mic_clean.is_empty());
         assert!(manager.system.is_empty());
+        assert!(manager.mic_preview.is_empty());
+        assert!(manager.system_preview.is_empty());
     }
 }

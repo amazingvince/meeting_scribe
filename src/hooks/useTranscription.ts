@@ -41,10 +41,13 @@ export function useTranscription() {
       setProgress(null);
 
       try {
-        const result = await api.processMeeting(meetingId, micPath, systemPath);
+        const result = await api.processMeeting(meetingId, micPath, systemPath, {
+          echoBackend: settings.echoCancellationBackend,
+        });
+        const segmentCount = result.stats?.segment_count ?? result.transcript.length;
         toast.success(
           'Transcription complete',
-          `Processed ${result.mic_segment_count + result.system_segment_count} segments`
+          `Processed ${segmentCount} segments`
         );
         return result;
       } catch (e) {
@@ -58,7 +61,7 @@ export function useTranscription() {
         setProgress(null);
       }
     },
-    [settings.transcriptionReady, toast]
+    [settings.echoCancellationBackend, settings.transcriptionReady, toast]
   );
 
   const transcribeFile = useCallback(

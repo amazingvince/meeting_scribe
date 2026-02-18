@@ -439,8 +439,7 @@ pub fn stream_meeting_question(
 
     let result = if chat_history.is_empty() {
         // Build prompt manually for streaming
-        let prepared =
-            crate::inference::llm::prepare_transcript_for_llm(&transcript, 12000);
+        let prepared = crate::inference::llm::prepare_transcript_for_llm(&transcript, 12000);
         let prompt = crate::inference::prompts::quick_question_prompt(&question, &prepared);
         let config = GenerationConfig::for_chat();
 
@@ -456,8 +455,7 @@ pub fn stream_meeting_question(
         })
     } else {
         // Build RAG prompt for streaming
-        let prepared =
-            crate::inference::llm::prepare_transcript_for_llm(&transcript, 12000);
+        let prepared = crate::inference::llm::prepare_transcript_for_llm(&transcript, 12000);
         let prompt =
             crate::inference::prompts::rag_chat_prompt(&prepared, &question, &chat_history);
         let config = GenerationConfig::for_chat();
@@ -484,7 +482,9 @@ pub fn stream_meeting_question(
         },
     );
 
-    result.map(|_| ()).map_err(|e| format!("Streaming failed: {}", e))
+    result
+        .map(|_| ())
+        .map_err(|e| format!("Streaming failed: {}", e))
 }
 
 /// Get estimated token count for text

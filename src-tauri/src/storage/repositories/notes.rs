@@ -133,10 +133,7 @@ impl NotesRepository {
                 "DELETE FROM notes WHERE meeting_id = ?",
                 params![meeting_id],
             )?;
-            debug!(
-                "Deleted {} notes for meeting {}",
-                rows, meeting_id
-            );
+            debug!("Deleted {} notes for meeting {}", rows, meeting_id);
             Ok(rows)
         })
     }

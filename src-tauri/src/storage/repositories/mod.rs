@@ -43,8 +43,8 @@ impl Repositories {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::models::{Meeting, StoredSegment};
     use crate::inference::Speaker;
+    use crate::storage::models::{Meeting, StoredSegment};
     use tempfile::TempDir;
 
     fn setup_test_db() -> (TempDir, Database) {

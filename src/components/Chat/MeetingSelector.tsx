@@ -3,10 +3,10 @@
  * Allows users to filter chat to specific meetings
  */
 
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { X, Check, Calendar, Clock } from 'lucide-react';
-import { useMeetings } from '../../hooks';
 import type { Meeting } from '../../types';
+import * as api from '../../lib/tauri';
 
 interface MeetingSelectorProps {
   /** Currently selected meeting IDs */
@@ -41,12 +41,31 @@ function formatDuration(ms: number | null): string {
 }
 
 export function MeetingSelector({ selectedIds, onSelect }: MeetingSelectorProps) {
-  const { meetings, fetchMeetings, isLoading } = useMeetings({ autoFetch: false });
+  const [readyMeetings, setReadyMeetings] = useState<Meeting[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchReadyMeetings = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const meetings = await api.listMeetings({
+        status: 'ready',
+        limit: 500,
+      });
+      setReadyMeetings(meetings);
+    } catch (e) {
+      setReadyMeetings([]);
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   // Fetch meetings on mount
   useEffect(() => {
-    fetchMeetings();
-  }, [fetchMeetings]);
+    void fetchReadyMeetings();
+  }, [fetchReadyMeetings]);
 
   const toggleMeeting = useCallback(
     (meetingId: string) => {
@@ -63,13 +82,18 @@ export function MeetingSelector({ selectedIds, onSelect }: MeetingSelectorProps)
     onSelect([]);
   }, [onSelect]);
 
-  // Get ready meetings only
-  const readyMeetings = meetings.filter((m) => m.status === 'ready');
-
   if (isLoading) {
     return (
       <div className="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">
         Loading meetings...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="px-4 py-2 text-sm text-red-600 dark:text-red-400">
+        Failed to load meetings: {error}
       </div>
     );
   }
@@ -125,7 +149,7 @@ export function MeetingSelector({ selectedIds, onSelect }: MeetingSelectorProps)
 
       {/* Meeting list */}
       <div className="max-h-48 overflow-y-auto px-2 space-y-1">
-        {readyMeetings.slice(0, 10).map((meeting) => (
+        {readyMeetings.map((meeting) => (
           <MeetingItem
             key={meeting.id}
             meeting={meeting}
@@ -133,11 +157,6 @@ export function MeetingSelector({ selectedIds, onSelect }: MeetingSelectorProps)
             onToggle={toggleMeeting}
           />
         ))}
-        {readyMeetings.length > 10 && (
-          <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-1">
-            Showing 10 of {readyMeetings.length} meetings
-          </p>
-        )}
       </div>
 
       {/* Info text */}

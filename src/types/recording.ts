@@ -24,10 +24,71 @@ export interface RecordingStateResponse {
   duration_ms: number;
 }
 
+/** Event payload emitted whenever recording state changes */
+export interface RecordingStateChangedEvent {
+  state: RecordingState;
+  meeting_id: string | null;
+  duration_ms: number;
+}
+
 /** Available audio devices */
 export interface AudioDevices {
   input_devices: string[];
   output_devices: string[];
+}
+
+/** Supported macOS system-audio backend options */
+export type MacSystemAudioBackend = 'auto' | 'process_tap' | 'loopback';
+
+/** Echo cancellation backend options used during transcription processing */
+export type EchoCancellationBackend = 'webrtc_aec3' | 'speex';
+
+/** System-audio settings (macOS backend + optional loopback/monitor device hint) */
+export interface MacSystemAudioSettings {
+  backend?: MacSystemAudioBackend;
+  loopbackDevice?: string;
+}
+
+/** Options for starting a recording session */
+export interface StartRecordingOptions {
+  macSystemAudio?: MacSystemAudioSettings;
+}
+
+/** Options for meeting transcription processing */
+export interface ProcessMeetingOptions {
+  echoBackend?: EchoCancellationBackend;
+}
+
+/** Options for live transcript preview while recording */
+export interface LivePreviewOptions {
+  windowSeconds?: number;
+  includeSystemAudio?: boolean;
+}
+
+/** Lightweight transcript segment used for live preview events */
+export interface LiveTranscriptSegment {
+  start_ms: number;
+  end_ms: number;
+  text: string;
+  speaker: 'You' | 'Others' | 'Unknown';
+  confidence?: number | null;
+}
+
+/** Live preview payload while recording */
+export interface LiveTranscriptPreview {
+  meeting_id: string;
+  duration_ms: number;
+  window_start_ms: number;
+  segments: LiveTranscriptSegment[];
+}
+
+/** Event emitted when background meeting processing completes */
+export interface MeetingProcessingFinishedEvent {
+  meeting_id: string;
+  success: boolean;
+  segment_count?: number | null;
+  processing_time_ms?: number | null;
+  error_message?: string | null;
 }
 
 /** Speech segment from VAD */

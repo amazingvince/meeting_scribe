@@ -23,7 +23,13 @@ impl SearchService {
     /// Search transcripts using FTS5
     pub fn search_transcripts(&self, query: &str, limit: u32) -> Result<Vec<SearchHit>> {
         self.db.with_conn(|conn| {
-            let fts_query = Self::sanitize_fts_query(query);
+            let Some(fts_query) = Self::sanitize_fts_query(query) else {
+                debug!(
+                    "FTS search for '{}' returned 0 results (empty query after sanitization)",
+                    query
+                );
+                return Ok(Vec::new());
+            };
 
             let mut stmt = conn.prepare(
                 r#"
@@ -62,7 +68,11 @@ impl SearchService {
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
 
-            debug!("FTS search for '{}' returned {} results", query, results.len());
+            debug!(
+                "FTS search for '{}' returned {} results",
+                query,
+                results.len()
+            );
             Ok(results)
         })
     }
@@ -74,7 +84,13 @@ impl SearchService {
         limit: u32,
     ) -> Result<Vec<SearchHitWithSnippet>> {
         self.db.with_conn(|conn| {
-            let fts_query = Self::sanitize_fts_query(query);
+            let Some(fts_query) = Self::sanitize_fts_query(query) else {
+                debug!(
+                    "FTS snippet search for '{}' returned 0 results (empty query after sanitization)",
+                    query
+                );
+                return Ok(Vec::new());
+            };
 
             let mut stmt = conn.prepare(
                 r#"
@@ -130,7 +146,13 @@ impl SearchService {
         limit: u32,
     ) -> Result<Vec<SearchHit>> {
         self.db.with_conn(|conn| {
-            let fts_query = Self::sanitize_fts_query(query);
+            let Some(fts_query) = Self::sanitize_fts_query(query) else {
+                debug!(
+                    "FTS in-meeting search for '{}' returned 0 results (empty query after sanitization)",
+                    query
+                );
+                return Ok(Vec::new());
+            };
 
             let mut stmt = conn.prepare(
                 r#"
@@ -176,13 +198,14 @@ impl SearchService {
 
     /// Get recent segments matching a query (for autocomplete)
     pub fn autocomplete(&self, query: &str, limit: u32) -> Result<Vec<String>> {
-        if query.len() < 2 {
+        let normalized = Self::normalize_query(query);
+        if normalized.len() < 2 {
             return Ok(Vec::new());
         }
 
         self.db.with_conn(|conn| {
             // Use prefix search for autocomplete
-            let fts_query = format!("{}*", Self::escape_special_chars(query));
+            let fts_query = format!("{}*", normalized);
 
             let mut stmt = conn.prepare(
                 r#"
@@ -221,28 +244,34 @@ impl SearchService {
     }
 
     /// Sanitize query for FTS5 (escape special characters)
-    fn sanitize_fts_query(query: &str) -> String {
-        let escaped = Self::escape_special_chars(query);
+    fn sanitize_fts_query(query: &str) -> Option<String> {
+        let normalized = Self::normalize_query(query);
+        if normalized.is_empty() {
+            return None;
+        }
 
         // If query contains multiple words, wrap in quotes for phrase search
         // or add * for prefix matching on single words
-        if query.contains(' ') {
-            format!("\"{}\"", escaped)
+        if normalized.contains(' ') {
+            Some(format!("\"{}\"", normalized))
         } else {
-            format!("{}*", escaped) // Prefix search for single words
+            Some(format!("{}*", normalized)) // Prefix search for single words
         }
+    }
+
+    /// Normalize query text after escaping:
+    /// - trim leading/trailing space
+    /// - collapse repeated internal whitespace
+    /// - drop FTS special operators/symbols
+    fn normalize_query(query: &str) -> String {
+        let escaped = Self::escape_special_chars(query.trim());
+        escaped.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 
     /// Escape FTS5 special characters
     fn escape_special_chars(s: &str) -> String {
         s.replace('"', "\"\"")
-            .replace('*', "")
-            .replace('?', "")
-            .replace('[', "")
-            .replace(']', "")
-            .replace('(', "")
-            .replace(')', "")
-            .replace('+', "")
+            .replace(['*', '?', '[', ']', '(', ')', '+'], "")
             .replace('-', " ") // Replace hyphen with space
     }
 }
@@ -458,18 +487,37 @@ mod tests {
         // Single word becomes prefix search
         assert_eq!(
             SearchService::sanitize_fts_query("test"),
-            "test*"
+            Some("test*".to_string())
         );
 
         // Multiple words become phrase search
         assert_eq!(
             SearchService::sanitize_fts_query("hello world"),
-            "\"hello world\""
+            Some("\"hello world\"".to_string())
         );
 
         // Special characters are escaped
         let sanitized = SearchService::sanitize_fts_query("test*?[]()");
-        assert!(!sanitized.contains('*') || sanitized.ends_with('*'));
+        assert_eq!(sanitized, Some("test*".to_string()));
+    }
+
+    #[test]
+    fn test_sanitize_empty_or_symbol_only_query() {
+        assert_eq!(SearchService::sanitize_fts_query(""), None);
+        assert_eq!(SearchService::sanitize_fts_query("   "), None);
+        assert_eq!(SearchService::sanitize_fts_query("***"), None);
+        assert_eq!(SearchService::sanitize_fts_query("()[]+?"), None);
+    }
+
+    #[test]
+    fn test_search_with_symbol_only_query_returns_empty() {
+        let (_temp, db) = setup_test_db();
+        create_test_data(&db);
+        let search = SearchService::new(db);
+
+        // Should return empty result set instead of surfacing an FTS syntax error.
+        let results = search.search_transcripts("***", 10).unwrap();
+        assert!(results.is_empty());
     }
 
     #[test]

@@ -2,7 +2,9 @@
 //!
 //! Combines chunking, embedding, and vector storage.
 
-use crate::inference::chunking::{chunk_text, chunk_transcript, TranscriptSegmentInput, MAX_CHUNK_CHARS};
+use crate::inference::chunking::{
+    chunk_text, chunk_transcript, TranscriptSegmentInput, MAX_CHUNK_CHARS,
+};
 use crate::inference::embedding::{EmbeddingService, EmbeddingTask};
 use crate::storage::vectors::{EmbeddingRecord, VectorStore};
 use anyhow::Result;
@@ -147,7 +149,11 @@ impl EmbeddingPipeline {
                 .embedding_service
                 .embed(&chunk.text, EmbeddingTask::Document)?;
 
-            records.push(EmbeddingRecord::new_note(meeting_id, &chunk.text, embedding));
+            records.push(EmbeddingRecord::new_note(
+                meeting_id,
+                &chunk.text,
+                embedding,
+            ));
         }
 
         let first_id = records.first().map(|r| r.id.clone()).unwrap_or_default();
@@ -210,7 +216,9 @@ impl EmbeddingPipeline {
 
     /// Delete all embeddings for a meeting
     pub async fn delete_meeting_embeddings(&self, meeting_id: &str) -> Result<u64> {
-        self.vector_store.delete_meeting_embeddings(meeting_id).await
+        self.vector_store
+            .delete_meeting_embeddings(meeting_id)
+            .await
     }
 
     /// Get the embedding service for direct access

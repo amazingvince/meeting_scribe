@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { Sparkles, ListChecks, RefreshCw } from 'lucide-react';
+import { Sparkles, ListChecks, RefreshCw, Loader2 } from 'lucide-react';
 import type { ActionItem } from '../../types';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
@@ -25,9 +25,17 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
   const [isLoadingActions, setIsLoadingActions] = useState(false);
+  const [summaryStatus, setSummaryStatus] = useState<string | null>(null);
+  const [actionsStatus, setActionsStatus] = useState<string | null>(null);
 
   // Load saved summaries on mount
   useEffect(() => {
+    // Reset panel state when meeting context changes so stale data never carries over.
+    setSummary(null);
+    setActionItems([]);
+    setSummaryStatus(null);
+    setActionsStatus(null);
+
     const loadSummaries = async () => {
       setIsLoading(true);
       try {
@@ -63,10 +71,12 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
 
   const generateSummary = useCallback(async () => {
     setIsLoadingSummary(true);
+    setSummaryStatus('Checking language model...');
     try {
       // Check if LLM is ready, try to load if not
       let llmReady = settings.llmReady;
       if (!llmReady) {
+        setSummaryStatus('Loading language model...');
         toast.info('Loading language model...');
         llmReady = await settings.initializeLlm();
       }
@@ -76,15 +86,17 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
           'LLM not available',
           'Download a language model in Settings to generate summaries.'
         );
-        setIsLoadingSummary(false);
+        setSummaryStatus('Language model unavailable.');
         return;
       }
 
       // Generate the summary via LLM
+      setSummaryStatus('Generating summary...');
       const result = await api.generateSummary(meetingId);
       setSummary(result);
 
       // Save the summary for persistence
+      setSummaryStatus('Saving summary...');
       await api.saveSummary(
         meetingId,
         'full',
@@ -100,15 +112,18 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
       );
     } finally {
       setIsLoadingSummary(false);
+      setSummaryStatus(null);
     }
   }, [meetingId, settings, toast]);
 
   const extractActionItems = useCallback(async () => {
     setIsLoadingActions(true);
+    setActionsStatus('Checking language model...');
     try {
       // Check if LLM is ready, try to load if not
       let llmReady = settings.llmReady;
       if (!llmReady) {
+        setActionsStatus('Loading language model...');
         toast.info('Loading language model...');
         llmReady = await settings.initializeLlm();
       }
@@ -118,15 +133,17 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
           'LLM not available',
           'Download a language model in Settings to extract action items.'
         );
-        setIsLoadingActions(false);
+        setActionsStatus('Language model unavailable.');
         return;
       }
 
       // Extract action items via LLM
+      setActionsStatus('Extracting action items...');
       const result = await api.extractActionItems(meetingId);
       setActionItems(result);
 
       // Save action items as JSON for persistence
+      setActionsStatus('Saving action items...');
       await api.saveSummary(
         meetingId,
         'action_items',
@@ -142,8 +159,16 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
       );
     } finally {
       setIsLoadingActions(false);
+      setActionsStatus(null);
     }
   }, [meetingId, settings, toast]);
+
+  const isAnyGenerationRunning = isLoadingSummary || isLoadingActions;
+  const activeTaskMessage = isLoadingSummary
+    ? summaryStatus
+    : isLoadingActions
+      ? actionsStatus
+      : null;
 
   if (!hasTranscript) {
     return (
@@ -168,6 +193,15 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
 
   return (
     <div className="p-4 space-y-6">
+      {isAnyGenerationRunning && activeTaskMessage && (
+        <Card className="border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-900/10">
+          <div className="flex items-center gap-2 text-sm text-indigo-700 dark:text-indigo-300">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span className="font-medium">{activeTaskMessage}</span>
+          </div>
+        </Card>
+      )}
+
       {/* Summary section */}
       <Card>
         <div className="flex items-center justify-between mb-4">
@@ -180,6 +214,7 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
             size="sm"
             onClick={generateSummary}
             isLoading={isLoadingSummary}
+            disabled={isLoadingActions}
           >
             {summary ? (
               <>
@@ -191,6 +226,12 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
             )}
           </Button>
         </div>
+
+        {isLoadingSummary && summaryStatus && (
+          <p className="text-xs text-indigo-600 dark:text-indigo-400 mb-3">
+            {summaryStatus}
+          </p>
+        )}
 
         {isLoadingSummary ? (
           <SkeletonText lines={4} />
@@ -217,6 +258,7 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
             size="sm"
             onClick={extractActionItems}
             isLoading={isLoadingActions}
+            disabled={isLoadingSummary}
           >
             {actionItems.length > 0 ? (
               <>
@@ -228,6 +270,12 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
             )}
           </Button>
         </div>
+
+        {isLoadingActions && actionsStatus && (
+          <p className="text-xs text-indigo-600 dark:text-indigo-400 mb-3">
+            {actionsStatus}
+          </p>
+        )}
 
         {isLoadingActions ? (
           <SkeletonText lines={3} />

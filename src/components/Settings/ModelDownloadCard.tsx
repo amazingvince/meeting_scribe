@@ -6,6 +6,16 @@ import { Download, Check, Loader2, Trash2, AlertCircle, RefreshCw, Play } from '
 import { Button } from '../ui/Button';
 import { ProgressBar } from '../ui/Progress';
 import { Badge } from '../ui/Badge';
+import { formatBytes } from '../../utils/format';
+
+interface DownloadDetails {
+  stage?: string | null;
+  message?: string | null;
+  downloadedBytes?: number | null;
+  totalBytes?: number | null;
+  speedBps?: number | null;
+  file?: string | null;
+}
 
 interface ModelDownloadCardProps {
   name: string;
@@ -25,6 +35,7 @@ interface ModelDownloadCardProps {
   // Optional default selection
   isDefault?: boolean;
   onSetDefault?: () => void;
+  downloadDetails?: DownloadDetails;
 }
 
 export function ModelDownloadCard({
@@ -43,11 +54,56 @@ export function ModelDownloadCard({
   onLoad,
   isDefault,
   onSetDefault,
+  downloadDetails,
 }: ModelDownloadCardProps) {
   const handleRetry = () => {
     onClearError?.();
     onDownload();
   };
+
+  const transferSummary =
+    downloadDetails?.downloadedBytes !== undefined &&
+    downloadDetails?.downloadedBytes !== null
+      ? downloadDetails.totalBytes
+        ? `${formatBytes(downloadDetails.downloadedBytes)} / ${formatBytes(downloadDetails.totalBytes)}`
+        : `${formatBytes(downloadDetails.downloadedBytes)} downloaded`
+      : null;
+
+  const speedSummary =
+    downloadDetails?.speedBps && downloadDetails.speedBps > 0
+      ? `${formatBytes(downloadDetails.speedBps)}/s`
+      : null;
+
+  const etaSummary =
+    downloadDetails?.totalBytes &&
+    downloadDetails?.downloadedBytes !== null &&
+    downloadDetails?.downloadedBytes !== undefined &&
+    downloadDetails?.speedBps &&
+    downloadDetails.speedBps > 0
+      ? (() => {
+          const remaining = Math.max(
+            0,
+            downloadDetails.totalBytes - downloadDetails.downloadedBytes
+          );
+          const etaSeconds = Math.round(remaining / downloadDetails.speedBps);
+          if (!Number.isFinite(etaSeconds) || etaSeconds <= 0) {
+            return null;
+          }
+          if (etaSeconds < 60) {
+            return `${etaSeconds}s left`;
+          }
+          const minutes = Math.floor(etaSeconds / 60);
+          const seconds = etaSeconds % 60;
+          return `${minutes}m ${seconds}s left`;
+        })()
+      : null;
+
+  const normalizedStage = downloadDetails?.stage
+    ? downloadDetails.stage
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/_/g, ' ')
+        .trim()
+    : 'Downloading';
 
   return (
     <div
@@ -149,8 +205,24 @@ export function ModelDownloadCard({
       </div>
 
       {isDownloading && (
-        <div className="mt-3">
-          <ProgressBar value={downloadProgress} showLabel size="sm" />
+        <div className="mt-3 space-y-2">
+          <ProgressBar
+            value={downloadProgress}
+            label={normalizedStage}
+            showLabel
+            size="sm"
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {downloadDetails?.message ?? 'Downloading model files...'}
+          </p>
+          {(downloadDetails?.file || transferSummary || speedSummary || etaSummary) && (
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+              {downloadDetails?.file && <span>File: {downloadDetails.file}</span>}
+              {transferSummary && <span>{transferSummary}</span>}
+              {speedSummary && <span>{speedSummary}</span>}
+              {etaSummary && <span>{etaSummary}</span>}
+            </div>
+          )}
         </div>
       )}
 

@@ -158,16 +158,8 @@ impl LlmService {
         let model_params = LlamaModelParams::default().with_n_gpu_layers(self.gpu_layers);
 
         // Load the model
-        let loaded_model =
-            LlamaModel::load_from_file(&self.backend, &model_file, &model_params).map_err(
-                |e| {
-                    anyhow!(
-                        "Failed to load model {:?}: {}",
-                        model_file,
-                        format!("{:?}", e)
-                    )
-                },
-            )?;
+        let loaded_model = LlamaModel::load_from_file(&self.backend, &model_file, &model_params)
+            .map_err(|e| anyhow!("Failed to load model {:?}: {:?}", model_file, e))?;
 
         info!(
             "LLM model loaded: {} (vocab: {}, params: {})",
@@ -295,7 +287,12 @@ impl LlmService {
     }
 
     /// Generate text with streaming via callback
-    pub fn generate_stream<F>(&self, prompt: &str, config: &GenerationConfig, mut callback: F) -> Result<String>
+    pub fn generate_stream<F>(
+        &self,
+        prompt: &str,
+        config: &GenerationConfig,
+        mut callback: F,
+    ) -> Result<String>
     where
         F: FnMut(&str),
     {
@@ -349,7 +346,11 @@ impl LlmService {
                 output.push_str(&token_str);
                 callback(&token_str);
 
-                if config.stop_sequences.iter().any(|s| output.contains(s.as_str())) {
+                if config
+                    .stop_sequences
+                    .iter()
+                    .any(|s| output.contains(s.as_str()))
+                {
                     for stop in &config.stop_sequences {
                         if let Some(pos) = output.find(stop.as_str()) {
                             output.truncate(pos);

@@ -1,0 +1,29 @@
+<svg width="980" height="280" viewBox="0 0 980 280" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Meeting Scribe logo</title>
+  <desc id="desc">Meeting Scribe wordmark with speech-wave pen icon where the pen nib does not overlap the waveform.</desc>
+  <defs>
+    <linearGradient id="bg" x1="24" y1="14" x2="198" y2="206" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0E7490"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="nib" x1="162" y1="44" x2="212" y2="94" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#14B8A6"/>
+      <stop offset="1" stop-color="#0EA5E9"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="12" y="12" width="200" height="200" rx="52" fill="url(#bg)"/>
+  <path d="M50 72C50 61 59 52 70 52H154C165 52 174 61 174 72V109C174 120 165 129 154 129H103L78 152V129H70C59 129 50 120 50 109V72Z" fill="white" fill-opacity="0.95"/>
+
+  <path d="M72 93C72 89.686 74.686 87 78 87C81.314 87 84 89.686 84 93V102C84 105.314 81.314 108 78 108C74.686 108 72 105.314 72 102V93Z" fill="#0284C7"/>
+  <path d="M96 83C96 79.686 98.686 77 102 77C105.314 77 108 79.686 108 83V112C108 115.314 105.314 118 102 118C98.686 118 96 115.314 96 112V83Z" fill="#0284C7"/>
+  <path d="M120 73C120 69.686 122.686 67 126 67C129.314 67 132 69.686 132 73V122C132 125.314 129.314 128 126 128C122.686 128 120 125.314 120 122V73Z" fill="#0284C7"/>
+  <path d="M144 83C144 79.686 146.686 77 150 77C153.314 77 156 79.686 156 83V112C156 115.314 153.314 118 150 118C146.686 118 144 115.314 144 112V83Z" fill="#0284C7"/>
+
+  <path d="M188 44L212 68L186 94L162 70L188 44Z" fill="url(#nib)"/>
+  <path d="M200 56L212 68L186 94L174 82L200 56Z" fill="#0C97BC" fill-opacity="0.55"/>
+  <circle cx="187" cy="69" r="4.5" fill="white"/>
+
+  <text x="252" y="122" font-family="Segoe UI, Inter, Helvetica, Arial, sans-serif" font-size="74" font-weight="700" fill="#0F172A">Meeting</text>
+  <text x="252" y="194" font-family="Segoe UI, Inter, Helvetica, Arial, sans-serif" font-size="74" font-weight="700" fill="#0369A1">Scribe</text>
+</svg>

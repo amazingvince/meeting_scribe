@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import { Save, FileText } from 'lucide-react';
+import { Save, FileText, Loader2, Check } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Textarea } from '../ui/Input';
 import { useToastStore } from '../../stores';
@@ -97,11 +97,23 @@ export function NotesPanel({ meetingId }: NotesPanelProps) {
         disabled={isLoading}
       />
 
-      {hasChanges && (
-        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-          You have unsaved changes
-        </p>
-      )}
+      <div className="mt-2 min-h-4">
+        {isSaving ? (
+          <p className="text-xs text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Saving changes...
+          </p>
+        ) : hasChanges ? (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            You have unsaved changes
+          </p>
+        ) : !isLoading ? (
+          <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+            <Check className="w-3 h-3" />
+            All changes saved
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 }

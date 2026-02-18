@@ -23,16 +23,25 @@ export function useTauriEvent<T>(
 
   useEffect(() => {
     let unlisten: UnlistenFn | null = null;
+    let cancelled = false;
 
     const setupListener = async () => {
-      unlisten = await listen<T>(eventName, (event) => {
+      const dispose = await listen<T>(eventName, (event) => {
         handlerRef.current(event.payload);
       });
+
+      if (cancelled) {
+        dispose();
+        return;
+      }
+
+      unlisten = dispose;
     };
 
-    setupListener();
+    void setupListener();
 
     return () => {
+      cancelled = true;
       if (unlisten) {
         unlisten();
       }

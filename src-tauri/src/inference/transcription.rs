@@ -96,18 +96,14 @@ impl Default for TranscriptionConfig {
 }
 
 /// Transcription service state
+#[derive(Default)]
 enum EngineState {
     /// No engine loaded
+    #[default]
     Unloaded,
     /// Parakeet engine loaded
-    Parakeet(ParakeetEngine),
+    Parakeet(Box<ParakeetEngine>),
     // Future: Add Whisper and Moonshine variants
-}
-
-impl Default for EngineState {
-    fn default() -> Self {
-        EngineState::Unloaded
-    }
 }
 
 /// Transcription service wrapping transcribe-rs engines
@@ -149,8 +145,27 @@ impl TranscriptionService {
     }
 
     /// Initialize the transcription engine with a model
-    pub fn initialize(&self, model_manager: &ModelManager, config: TranscriptionConfig) -> Result<()> {
+    pub fn initialize(
+        &self,
+        model_manager: &ModelManager,
+        config: TranscriptionConfig,
+    ) -> Result<()> {
+        crate::ensure_onnx_runtime_env();
+
         let backend = config.backend;
+
+        #[cfg(target_os = "macos")]
+        {
+            let ort_path = std::env::var("ORT_DYLIB_PATH").ok();
+            match ort_path.as_deref() {
+                Some(path) if Path::new(path).exists() => {}
+                _ => {
+                    anyhow::bail!(
+                        "ONNX Runtime library not found. Install `onnxruntime` (Homebrew) or set ORT_DYLIB_PATH to libonnxruntime.dylib before launching the app."
+                    );
+                }
+            }
+        }
 
         // Check if model is downloaded
         if !model_manager.is_model_ready(backend) {
@@ -179,7 +194,7 @@ impl TranscriptionService {
                         anyhow::anyhow!("Failed to load Parakeet model: {:?}", e)
                     })?;
 
-                *self.engine.lock() = EngineState::Parakeet(engine);
+                *self.engine.lock() = EngineState::Parakeet(Box::new(engine));
             }
             TranscriptionBackend::Whisper => {
                 // TODO: Implement when whisper feature is added
@@ -307,7 +322,8 @@ impl TranscriptionService {
                 Ok(mut segments) => {
                     // Filter out segments that fall in the overlap region (except for first chunk)
                     if chunk_index > 0 {
-                        let overlap_end_ms = (time_offset_secs + Self::CHUNK_OVERLAP_SECONDS) * 1000.0;
+                        let overlap_end_ms =
+                            (time_offset_secs + Self::CHUNK_OVERLAP_SECONDS) * 1000.0;
                         segments.retain(|s| s.start_ms as f32 >= overlap_end_ms - 500.0);
                     }
                     all_segments.extend(segments);
@@ -454,6 +470,13 @@ impl TranscriptionService {
 
                 match self.transcribe_samples_internal(chunk, time_offset_secs) {
                     Ok(mut chunk_segments) => {
+                        // Keep only segments outside the chunk overlap window
+                        // so we do not duplicate text between adjacent chunks.
+                        if chunk_index > 0 {
+                            let overlap_end_ms =
+                                (time_offset_secs + Self::CHUNK_OVERLAP_SECONDS) * 1000.0;
+                            chunk_segments.retain(|s| s.start_ms as f32 >= overlap_end_ms - 500.0);
+                        }
                         all_segments.append(&mut chunk_segments);
                     }
                     Err(e) => {
@@ -467,6 +490,8 @@ impl TranscriptionService {
 
             all_segments
         };
+
+        segments.sort_by_key(|s| s.start_ms);
 
         // Assign speaker to all segments
         for segment in &mut segments {
@@ -615,8 +640,8 @@ mod tests {
         assert_eq!(format_timestamp(0), "00:00");
         assert_eq!(format_timestamp(30_000), "00:30");
         assert_eq!(format_timestamp(90_000), "01:30");
-        assert_eq!(format_timestamp(3600_000), "01:00:00");
-        assert_eq!(format_timestamp(3661_000), "01:01:01");
+        assert_eq!(format_timestamp(3_600_000), "01:00:00");
+        assert_eq!(format_timestamp(3_661_000), "01:01:01");
     }
 
     #[test]
@@ -624,8 +649,8 @@ mod tests {
         assert_eq!(format_duration(30_000), "30s");
         assert_eq!(format_duration(60_000), "1m");
         assert_eq!(format_duration(90_000), "1m 30s");
-        assert_eq!(format_duration(3600_000), "1h 0m");
-        assert_eq!(format_duration(3900_000), "1h 5m");
+        assert_eq!(format_duration(3_600_000), "1h 0m");
+        assert_eq!(format_duration(3_900_000), "1h 5m");
     }
 
     #[test]

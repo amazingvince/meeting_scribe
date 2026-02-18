@@ -51,7 +51,10 @@ pub fn create_meeting_with_id(
 
     repos.meetings.create(&meeting).map_err(|e| e.to_string())?;
 
-    info!("Created meeting with ID: {} ({})", meeting.title, meeting.id);
+    info!(
+        "Created meeting with ID: {} ({})",
+        meeting.title, meeting.id
+    );
     Ok(meeting)
 }
 
@@ -82,7 +85,9 @@ pub fn list_meetings(
     let mut options = ListOptions::new();
 
     if let Some(status_str) = status {
-        let status: MeetingStatus = status_str.parse().map_err(|e: anyhow::Error| e.to_string())?;
+        let status: MeetingStatus = status_str
+            .parse()
+            .map_err(|e: anyhow::Error| e.to_string())?;
         options = options.with_status(status);
     }
 
@@ -246,7 +251,11 @@ pub fn save_transcript(
         .insert_batch(&stored)
         .map_err(|e| e.to_string())?;
 
-    info!("Saved {} transcript segments for meeting {}", ids.len(), meeting_id);
+    info!(
+        "Saved {} transcript segments for meeting {}",
+        ids.len(),
+        meeting_id
+    );
 
     Ok(ids.len() as u64)
 }

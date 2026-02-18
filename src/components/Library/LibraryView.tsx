@@ -4,7 +4,7 @@
 
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Sparkles } from 'lucide-react';
 import { useMeetings } from '../../hooks';
 import { Button } from '../ui/Button';
 import { Modal, ModalFooter } from '../ui/Modal';
@@ -28,6 +28,7 @@ export function LibraryView() {
     isLoading,
     error,
     searchQuery,
+    searchMatches,
     search,
     fetchMeetings,
     deleteMeeting,
@@ -74,10 +75,10 @@ export function LibraryView() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 leading-tight">
           Meeting Library
         </h1>
         <Button
@@ -90,8 +91,22 @@ export function LibraryView() {
         </Button>
       </div>
 
-      {/* Search */}
-      <MeetingSearch value={searchQuery} onChange={search} />
+      <div className="sticky top-0 z-20 -mx-2 px-2 py-2 bg-surface-50/95 dark:bg-surface-950/95 backdrop-blur border-b border-gray-200/70 dark:border-gray-800/70">
+        <MeetingSearch
+          value={searchQuery}
+          onChange={search}
+          placeholder="Search transcript (hybrid keyword + semantic)..."
+        />
+        <div className="mt-2 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+          <span className="inline-flex items-center gap-1">
+            <Sparkles className="w-3.5 h-3.5" />
+            Hybrid transcript search
+          </span>
+          {searchQuery.trim().length > 0 && (
+            <span>{meetings.length} result{meetings.length === 1 ? '' : 's'}</span>
+          )}
+        </div>
+      </div>
 
       {/* Model Selector */}
       <ModelSelector />
@@ -133,6 +148,8 @@ export function LibraryView() {
                     <MeetingCard
                       key={meeting.id}
                       meeting={meeting}
+                      searchQuery={searchQuery}
+                      searchMatch={searchMatches[meeting.id]}
                       onClick={() => handleMeetingClick(meeting)}
                       onDelete={() => handleDeleteClick(meeting)}
                     />
