@@ -14,7 +14,7 @@ use lancedb::{connect, Connection, Table};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Embedding dimension for EmbeddingGemma (768-dim vectors)
 pub const EMBEDDING_DIM: usize = 768;
@@ -59,6 +59,8 @@ impl VectorStore {
             Field::new("chunk_type", DataType::Utf8, false), // "transcript", "note", "summary"
             Field::new("text", DataType::Utf8, false),
             Field::new("start_ms", DataType::Int64, true), // For transcript chunks
+            Field::new("end_ms", DataType::Int64, true),   // For transcript chunks
+            Field::new("chunk_index", DataType::Int64, true),
             Field::new(
                 "vector",
                 DataType::FixedSizeList(
@@ -72,26 +74,71 @@ impl VectorStore {
 
     /// Initialize the embeddings table
     pub async fn initialize(&self) -> Result<()> {
+        self.ensure_table_schema().await
+    }
+
+    async fn ensure_table_schema(&self) -> Result<()> {
         // Check if table exists
         let tables: Vec<String> = self.db.table_names().execute().await?;
 
         if !tables.contains(&self.table_name) {
-            // Create table with empty initial batch
-            let schema = Self::embeddings_schema();
-
-            let _table: Table = self
-                .db
-                .create_empty_table(&self.table_name, schema)
-                .execute()
-                .await
-                .context("Failed to create embeddings table")?;
-
-            info!("Created embeddings table");
-        } else {
-            debug!("Embeddings table already exists");
+            self.create_embeddings_table().await?;
+            return Ok(());
         }
 
+        let table = self.get_table().await?;
+        let existing_schema = table
+            .schema()
+            .await
+            .context("Failed to inspect embeddings schema")?;
+
+        if Self::is_compatible_schema(existing_schema.as_ref()) {
+            debug!("Embeddings table already exists with compatible schema");
+            return Ok(());
+        }
+
+        warn!(
+            "Embeddings table schema is incompatible with current version; rebuilding local vector index"
+        );
+        let namespace: Vec<String> = Vec::new();
+        self.db
+            .drop_table(&self.table_name, &namespace)
+            .await
+            .context("Failed to drop incompatible embeddings table")?;
+        self.create_embeddings_table().await?;
+
         Ok(())
+    }
+
+    async fn create_embeddings_table(&self) -> Result<()> {
+        let schema = Self::embeddings_schema();
+
+        let _table: Table = self
+            .db
+            .create_empty_table(&self.table_name, schema)
+            .execute()
+            .await
+            .context("Failed to create embeddings table")?;
+
+        info!("Created embeddings table");
+        Ok(())
+    }
+
+    fn is_compatible_schema(schema: &Schema) -> bool {
+        const REQUIRED_FIELDS: [&str; 8] = [
+            "id",
+            "meeting_id",
+            "chunk_type",
+            "text",
+            "start_ms",
+            "end_ms",
+            "chunk_index",
+            "vector",
+        ];
+
+        REQUIRED_FIELDS
+            .iter()
+            .all(|field_name| schema.field_with_name(field_name).is_ok())
     }
 
     /// Get or open the table
@@ -133,6 +180,8 @@ impl VectorStore {
         let chunk_types: Vec<&str> = records.iter().map(|r| r.chunk_type.as_str()).collect();
         let texts: Vec<&str> = records.iter().map(|r| r.text.as_str()).collect();
         let start_ms_vals: Vec<Option<i64>> = records.iter().map(|r| r.start_ms).collect();
+        let end_ms_vals: Vec<Option<i64>> = records.iter().map(|r| r.end_ms).collect();
+        let chunk_index_vals: Vec<Option<i64>> = records.iter().map(|r| r.chunk_index).collect();
 
         // Create fixed-size list array for vectors
         let vectors: Vec<Option<Vec<Option<f32>>>> = records
@@ -145,6 +194,8 @@ impl VectorStore {
         let chunk_type_array: ArrayRef = Arc::new(StringArray::from(chunk_types));
         let text_array: ArrayRef = Arc::new(StringArray::from(texts));
         let start_ms_array: ArrayRef = Arc::new(Int64Array::from(start_ms_vals));
+        let end_ms_array: ArrayRef = Arc::new(Int64Array::from(end_ms_vals));
+        let chunk_index_array: ArrayRef = Arc::new(Int64Array::from(chunk_index_vals));
         let vector_array: ArrayRef = Arc::new(FixedSizeListArray::from_iter_primitive::<
             Float32Type,
             _,
@@ -159,6 +210,8 @@ impl VectorStore {
                 chunk_type_array,
                 text_array,
                 start_ms_array,
+                end_ms_array,
+                chunk_index_array,
                 vector_array,
             ],
         )
@@ -223,6 +276,12 @@ impl VectorStore {
             let start_ms_arr = batch
                 .column_by_name("start_ms")
                 .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let end_ms_arr = batch
+                .column_by_name("end_ms")
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let chunk_index_arr = batch
+                .column_by_name("chunk_index")
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
 
             let distances = batch
                 .column_by_name("_distance")
@@ -240,6 +299,20 @@ impl VectorStore {
                     chunk_type: chunk_types.value(i).to_string(),
                     text: texts.value(i).to_string(),
                     start_ms: start_ms_arr.and_then(|arr| {
+                        if arr.is_null(i) {
+                            None
+                        } else {
+                            Some(arr.value(i))
+                        }
+                    }),
+                    end_ms: end_ms_arr.and_then(|arr| {
+                        if arr.is_null(i) {
+                            None
+                        } else {
+                            Some(arr.value(i))
+                        }
+                    }),
+                    chunk_index: chunk_index_arr.and_then(|arr| {
                         if arr.is_null(i) {
                             None
                         } else {
@@ -327,19 +400,32 @@ pub struct EmbeddingRecord {
     pub text: String,
     /// Start time for transcript chunks
     pub start_ms: Option<i64>,
+    /// End time for transcript chunks
+    pub end_ms: Option<i64>,
+    /// Chunk index within the source document/transcript
+    pub chunk_index: Option<i64>,
     /// Embedding vector
     pub vector: Vec<f32>,
 }
 
 impl EmbeddingRecord {
     /// Create a new embedding record for transcript text
-    pub fn new_transcript(meeting_id: &str, text: &str, start_ms: i64, vector: Vec<f32>) -> Self {
+    pub fn new_transcript(
+        meeting_id: &str,
+        text: &str,
+        start_ms: i64,
+        end_ms: i64,
+        chunk_index: usize,
+        vector: Vec<f32>,
+    ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             meeting_id: meeting_id.to_string(),
             chunk_type: "transcript".to_string(),
             text: text.to_string(),
             start_ms: Some(start_ms),
+            end_ms: Some(end_ms),
+            chunk_index: Some(chunk_index as i64),
             vector,
         }
     }
@@ -352,6 +438,8 @@ impl EmbeddingRecord {
             chunk_type: "note".to_string(),
             text: text.to_string(),
             start_ms: None,
+            end_ms: None,
+            chunk_index: None,
             vector,
         }
     }
@@ -364,6 +452,8 @@ impl EmbeddingRecord {
             chunk_type: "summary".to_string(),
             text: text.to_string(),
             start_ms: None,
+            end_ms: None,
+            chunk_index: None,
             vector,
         }
     }
@@ -382,6 +472,10 @@ pub struct SearchResult {
     pub text: String,
     /// Start time for transcripts
     pub start_ms: Option<i64>,
+    /// End time for transcripts
+    pub end_ms: Option<i64>,
+    /// Chunk index within source
+    pub chunk_index: Option<i64>,
     /// Similarity score (0-1, higher is more similar)
     pub similarity: f32,
     /// Raw distance from query
@@ -420,11 +514,20 @@ mod tests {
         let (_temp, store): (TempDir, VectorStore) = setup_test_store().await;
 
         let records = vec![
-            EmbeddingRecord::new_transcript("meeting-1", "Hello world", 0, make_test_vector(0.1)),
+            EmbeddingRecord::new_transcript(
+                "meeting-1",
+                "Hello world",
+                0,
+                1000,
+                0,
+                make_test_vector(0.1),
+            ),
             EmbeddingRecord::new_transcript(
                 "meeting-1",
                 "How are you",
                 5000,
+                6000,
+                1,
                 make_test_vector(0.2),
             ),
         ];
@@ -445,17 +548,23 @@ mod tests {
                 "meeting-1",
                 "AI and machine learning discussion",
                 0,
+                1000,
+                0,
                 make_test_vector(0.1),
             ),
             EmbeddingRecord::new_transcript(
                 "meeting-1",
                 "Database design patterns",
                 5000,
+                6000,
+                1,
                 make_test_vector(0.5),
             ),
             EmbeddingRecord::new_transcript(
                 "meeting-2",
                 "Rust programming tips",
+                0,
+                1000,
                 0,
                 make_test_vector(0.9),
             ),
@@ -477,10 +586,19 @@ mod tests {
         let (_temp, store): (TempDir, VectorStore) = setup_test_store().await;
 
         let records = vec![
-            EmbeddingRecord::new_transcript("meeting-1", "First meeting", 0, make_test_vector(0.1)),
+            EmbeddingRecord::new_transcript(
+                "meeting-1",
+                "First meeting",
+                0,
+                1000,
+                0,
+                make_test_vector(0.1),
+            ),
             EmbeddingRecord::new_transcript(
                 "meeting-2",
                 "Second meeting",
+                0,
+                1000,
                 0,
                 make_test_vector(0.1),
             ),
@@ -504,9 +622,30 @@ mod tests {
         let (_temp, store): (TempDir, VectorStore) = setup_test_store().await;
 
         let records = vec![
-            EmbeddingRecord::new_transcript("meeting-1", "First", 0, make_test_vector(0.1)),
-            EmbeddingRecord::new_transcript("meeting-1", "Second", 5000, make_test_vector(0.2)),
-            EmbeddingRecord::new_transcript("meeting-2", "Other", 0, make_test_vector(0.3)),
+            EmbeddingRecord::new_transcript(
+                "meeting-1",
+                "First",
+                0,
+                1000,
+                0,
+                make_test_vector(0.1),
+            ),
+            EmbeddingRecord::new_transcript(
+                "meeting-1",
+                "Second",
+                5000,
+                6000,
+                1,
+                make_test_vector(0.2),
+            ),
+            EmbeddingRecord::new_transcript(
+                "meeting-2",
+                "Other",
+                0,
+                1000,
+                0,
+                make_test_vector(0.3),
+            ),
         ];
 
         store.add_embeddings(records).await.unwrap();
@@ -532,9 +671,18 @@ mod tests {
                 meeting_id,
                 "Quoted ID content",
                 0,
+                1000,
+                0,
                 make_test_vector(0.1),
             ),
-            EmbeddingRecord::new_transcript("meeting-2", "Other content", 0, make_test_vector(0.2)),
+            EmbeddingRecord::new_transcript(
+                "meeting-2",
+                "Other content",
+                0,
+                1000,
+                0,
+                make_test_vector(0.2),
+            ),
         ];
 
         store.add_embeddings(records).await.unwrap();
@@ -558,6 +706,8 @@ mod tests {
             EmbeddingRecord::new_transcript(
                 "meeting-1",
                 "Transcript text",
+                0,
+                1000,
                 0,
                 make_test_vector(0.1),
             ),

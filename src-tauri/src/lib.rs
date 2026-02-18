@@ -54,6 +54,14 @@ fn resolve_onnx_runtime_path() -> Option<PathBuf> {
         }
     }
 
+    for dir in onnx_workspace_resource_dirs() {
+        push_unique_path(&mut candidate_dirs, dir);
+    }
+
+    for dir in onnx_ort_lib_location_dirs() {
+        push_unique_path(&mut candidate_dirs, dir);
+    }
+
     for dir in onnx_system_dirs() {
         push_unique_path(&mut candidate_dirs, dir);
     }
@@ -100,13 +108,80 @@ fn onnx_dirs_near_executable(exe_path: &std::path::Path) -> Vec<PathBuf> {
     dirs
 }
 
+fn onnx_workspace_resource_dirs() -> Vec<PathBuf> {
+    if cfg!(test) {
+        return Vec::new();
+    }
+
+    let Ok(current_dir) = std::env::current_dir() else {
+        return Vec::new();
+    };
+    onnx_workspace_resource_dirs_from(&current_dir)
+}
+
+fn onnx_workspace_resource_dirs_from(start: &std::path::Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut cursor = start.to_path_buf();
+
+    for _ in 0..6 {
+        dirs.push(cursor.join("resources/runtime"));
+        dirs.push(cursor.join("src-tauri/resources/runtime"));
+
+        if !cursor.pop() {
+            break;
+        }
+    }
+
+    dirs
+}
+
+fn onnx_ort_lib_location_dirs() -> Vec<PathBuf> {
+    let Some(path) = std::env::var_os("ORT_LIB_LOCATION") else {
+        return Vec::new();
+    };
+    let path = PathBuf::from(path);
+    if path.is_dir() {
+        return vec![path];
+    }
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(std::path::Path::to_path_buf)
+        .into_iter()
+        .collect()
+}
+
+fn onnx_cellar_lib_dirs(cellar_root: &std::path::Path) -> Vec<PathBuf> {
+    let entries = match std::fs::read_dir(cellar_root) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut dirs = Vec::new();
+    for entry in entries.flatten() {
+        let version_dir = entry.path();
+        if version_dir.is_dir() {
+            dirs.push(version_dir.join("lib"));
+        }
+    }
+    dirs
+}
+
 fn onnx_system_dirs() -> Vec<PathBuf> {
     #[cfg(target_os = "macos")]
     {
-        vec![
+        let mut dirs = vec![
             PathBuf::from("/opt/homebrew/lib"),
+            PathBuf::from("/opt/homebrew/opt/onnxruntime/lib"),
             PathBuf::from("/usr/local/lib"),
-        ]
+            PathBuf::from("/usr/local/opt/onnxruntime/lib"),
+        ];
+        dirs.extend(onnx_cellar_lib_dirs(std::path::Path::new(
+            "/opt/homebrew/Cellar/onnxruntime",
+        )));
+        dirs.extend(onnx_cellar_lib_dirs(std::path::Path::new(
+            "/usr/local/Cellar/onnxruntime",
+        )));
+        dirs
     }
 
     #[cfg(target_os = "linux")]
@@ -272,7 +347,10 @@ impl Default for AppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::{find_library_in_dirs, is_runtime_library_name};
+    use super::{
+        find_library_in_dirs, is_runtime_library_name, onnx_cellar_lib_dirs,
+        onnx_workspace_resource_dirs_from,
+    };
     use std::path::PathBuf;
 
     #[test]
@@ -337,5 +415,39 @@ mod tests {
             "libonnxruntime.dylib",
             "libonnxruntime.",
         ));
+    }
+
+    #[test]
+    fn workspace_resource_dirs_walk_parents() {
+        let start = PathBuf::from("/tmp/project/src-tauri");
+        let dirs = onnx_workspace_resource_dirs_from(&start);
+
+        assert_eq!(
+            dirs[0],
+            PathBuf::from("/tmp/project/src-tauri/resources/runtime")
+        );
+        assert_eq!(
+            dirs[1],
+            PathBuf::from("/tmp/project/src-tauri/src-tauri/resources/runtime")
+        );
+        assert_eq!(dirs[2], PathBuf::from("/tmp/project/resources/runtime"));
+        assert_eq!(
+            dirs[3],
+            PathBuf::from("/tmp/project/src-tauri/resources/runtime")
+        );
+    }
+
+    #[test]
+    fn cellar_dirs_include_version_libs() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let v1 = tmp.path().join("1.22.0");
+        let v2 = tmp.path().join("1.24.1");
+        std::fs::create_dir_all(v1.join("lib")).expect("create v1 lib");
+        std::fs::create_dir_all(v2.join("lib")).expect("create v2 lib");
+
+        let mut dirs = onnx_cellar_lib_dirs(tmp.path());
+        dirs.sort();
+
+        assert_eq!(dirs, vec![v1.join("lib"), v2.join("lib")]);
     }
 }

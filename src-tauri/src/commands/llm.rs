@@ -52,6 +52,89 @@ pub struct ChatHistoryMessage {
     pub content: String,
 }
 
+/// Retrieved context chunk for RAG answering
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetrievedContextChunk {
+    pub meeting_id: String,
+    pub meeting_title: String,
+    pub text: String,
+    pub start_ms: Option<i64>,
+    pub end_ms: Option<i64>,
+    pub similarity: f32,
+}
+
+const MAX_RAG_CONTEXT_CHUNKS: usize = 12;
+const MAX_RAG_CONTEXT_CHARS: usize = 14_000;
+const MAX_RAG_CHUNK_EXCERPT_CHARS: usize = 900;
+
+fn format_chat_history(history: Option<Vec<ChatHistoryMessage>>) -> String {
+    history
+        .map(|msgs| {
+            msgs.iter()
+                .map(|m| format!("{}: {}", m.role, m.content))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default()
+}
+
+fn format_timestamp_label(ms: i64) -> String {
+    let total_seconds = (ms.max(0)) / 1000;
+    let hours = total_seconds / 3600;
+    let minutes = (total_seconds % 3600) / 60;
+    let seconds = total_seconds % 60;
+
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+    } else {
+        format!("{:02}:{:02}", minutes, seconds)
+    }
+}
+
+fn trim_text_for_context(text: &str, max_chars: usize) -> String {
+    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() <= max_chars {
+        return compact;
+    }
+
+    let truncated: String = compact.chars().take(max_chars.saturating_sub(1)).collect();
+    format!("{}…", truncated)
+}
+
+fn format_context_chunks(chunks: &[RetrievedContextChunk]) -> String {
+    let mut context = String::new();
+
+    for (idx, chunk) in chunks.iter().take(MAX_RAG_CONTEXT_CHUNKS).enumerate() {
+        let excerpt = trim_text_for_context(&chunk.text, MAX_RAG_CHUNK_EXCERPT_CHARS);
+        let time_label = match (chunk.start_ms, chunk.end_ms) {
+            (Some(start), Some(end)) => {
+                format!(
+                    "{}-{}",
+                    format_timestamp_label(start),
+                    format_timestamp_label(end)
+                )
+            }
+            (Some(start), None) => format_timestamp_label(start),
+            _ => "n/a".to_string(),
+        };
+
+        let block = format!(
+            "[Source {idx} | meeting: {title} | time: {time}]\n{excerpt}\n\n",
+            idx = idx + 1,
+            title = chunk.meeting_title,
+            time = time_label,
+            excerpt = excerpt
+        );
+
+        if !context.is_empty() && context.len() + block.len() > MAX_RAG_CONTEXT_CHARS {
+            break;
+        }
+        context.push_str(&block);
+    }
+
+    context
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SummaryGenerationProgressEvent {
     pub meeting_id: String,
@@ -647,6 +730,41 @@ pub fn ask_meeting_question(
             .answer_with_context(&question, &transcript, &chat_history)
             .map_err(|e| format!("Failed to answer question: {}", e))
     }
+}
+
+/// Answer a question using retrieved RAG chunks.
+#[tauri::command]
+pub fn answer_with_retrieval(
+    llm: tauri::State<'_, SharedLlmService>,
+    question: String,
+    context_chunks: Vec<RetrievedContextChunk>,
+    history: Option<Vec<ChatHistoryMessage>>,
+) -> Result<String, String> {
+    if context_chunks.is_empty() {
+        return Ok(
+            "I couldn't find any relevant information in your meetings for that question."
+                .to_string(),
+        );
+    }
+
+    let context = format_context_chunks(&context_chunks);
+    if context.trim().is_empty() {
+        return Ok(
+            "I found related meetings, but there wasn't enough context to answer confidently."
+                .to_string(),
+        );
+    }
+
+    let chat_history = format_chat_history(history);
+    let service = llm.lock();
+    if !service.is_loaded() {
+        return Err("Language model is not initialized".to_string());
+    }
+
+    let summarizer = SummarizationService::new(&service);
+    summarizer
+        .answer_with_context(&question, &context, &chat_history)
+        .map_err(|e| format!("Failed to answer question: {}", e))
 }
 
 /// Generate raw text (for testing/debugging)

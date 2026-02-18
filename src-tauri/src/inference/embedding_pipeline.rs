@@ -44,6 +44,11 @@ impl EmbeddingPipeline {
     {
         info!("Processing transcript for meeting {}", meeting_id);
 
+        // Ensure re-embeds replace prior chunks instead of accumulating stale duplicates.
+        self.vector_store
+            .delete_meeting_embeddings(meeting_id)
+            .await?;
+
         // Chunk the transcript
         let chunks = chunk_transcript(&segments, MAX_CHUNK_CHARS);
         let total_chunks = chunks.len();
@@ -84,6 +89,8 @@ impl EmbeddingPipeline {
                     meeting_id,
                     &chunk.text,
                     chunk.start_ms.unwrap_or(0),
+                    chunk.end_ms.unwrap_or(chunk.start_ms.unwrap_or(0)),
+                    chunk.chunk_index,
                     embedding,
                 ));
             }

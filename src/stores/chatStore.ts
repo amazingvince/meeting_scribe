@@ -5,12 +5,19 @@
 
 import { create } from 'zustand';
 import type { ChatMessage, ChatSource, SemanticSearchResult } from '../types';
-import type { ChatHistoryMessage, ChatTokenEvent } from '../lib/tauri';
+import type {
+  ChatHistoryMessage,
+  ChatTokenEvent,
+  RetrievedContextChunk,
+} from '../lib/tauri';
 import * as api from '../lib/tauri';
 import { modelManager } from '../lib/modelManager';
 
 /** Maximum number of history messages to include in context */
 const MAX_HISTORY_MESSAGES = 6;
+const MAX_RETRIEVAL_CONTEXT_CHUNKS = 10;
+const MEETING_SCOPED_RETRIEVAL_LIMIT = 6;
+const GLOBAL_RETRIEVAL_LIMIT = 12;
 
 /** Convert chat messages to history format for LLM */
 function getHistoryForLlm(messages: ChatMessage[]): ChatHistoryMessage[] {
@@ -30,7 +37,68 @@ function mapSearchResultsToSources(results: SemanticSearchResult[]): ChatSource[
     meeting_title: r.meeting_title,
     excerpt: r.text,
     start_ms: r.start_ms,
+    end_ms: r.end_ms,
     similarity: r.similarity,
+  }));
+}
+
+function normalizeTextForKey(text: string): string {
+  return text
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(' ');
+}
+
+function retrievalResultKey(result: SemanticSearchResult): string {
+  const chunkKey =
+    result.chunk_index !== null
+      ? `chunk:${result.chunk_index}`
+      : `time:${result.start_ms ?? -1}:${result.end_ms ?? -1}:${normalizeTextForKey(result.text)}`;
+  return `${result.meeting_id}::${result.chunk_type}::${chunkKey}`;
+}
+
+function rankRetrievalHit(hit: SemanticSearchResult, rankIndex: number): number {
+  const rankScore = 1 / (rankIndex + 1);
+  const similarityScore = Number.isFinite(hit.similarity) ? Math.max(0, hit.similarity) : 0;
+  const lexicalBoost = hit.chunk_type === 'fts' ? 0.06 : 0;
+  return rankScore + similarityScore * 0.35 + lexicalBoost;
+}
+
+function rankAndDedupeResults(
+  resultLists: SemanticSearchResult[][]
+): SemanticSearchResult[] {
+  const bestByKey = new Map<
+    string,
+    { hit: SemanticSearchResult; score: number }
+  >();
+
+  for (const list of resultLists) {
+    for (const [rankIndex, hit] of list.entries()) {
+      const key = retrievalResultKey(hit);
+      const score = rankRetrievalHit(hit, rankIndex);
+      const existing = bestByKey.get(key);
+      if (!existing || score > existing.score) {
+        bestByKey.set(key, { hit, score });
+      }
+    }
+  }
+
+  return [...bestByKey.values()]
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.hit);
+}
+
+function toRetrievedContextChunks(
+  results: SemanticSearchResult[]
+): RetrievedContextChunk[] {
+  return results.map((result) => ({
+    meeting_id: result.meeting_id,
+    meeting_title: result.meeting_title,
+    text: result.text,
+    start_ms: result.start_ms ?? null,
+    end_ms: result.end_ms ?? null,
+    similarity: result.similarity,
   }));
 }
 
@@ -39,12 +107,21 @@ async function searchInMeetings(
   meetingIds: string[],
   perMeetingLimit: number
 ): Promise<SemanticSearchResult[]> {
-  const results = await Promise.all(
-    meetingIds.map((meetingId) => api.semanticSearch(query, perMeetingLimit, meetingId))
+  const scopedMeetingIds = meetingIds.slice(0, 12);
+  const resultLists = await Promise.all(
+    scopedMeetingIds.map((meetingId) =>
+      api.hybridSearch(query, perMeetingLimit, meetingId)
+    )
   );
-  return results
-    .flat()
-    .sort((a, b) => b.similarity - a.similarity);
+  return rankAndDedupeResults(resultLists);
+}
+
+async function searchAcrossMeetings(
+  query: string,
+  limit: number
+): Promise<SemanticSearchResult[]> {
+  const results = await api.hybridSearch(query, limit);
+  return rankAndDedupeResults([results]);
 }
 
 interface ChatStore {
@@ -111,45 +188,39 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           'Embedding model is not ready. Download and load it in Settings to use chat.'
         );
       }
+      const llmReady = await modelManager.ensureLlmReady();
+      if (!llmReady) {
+        throw new Error(
+          'Language model is not ready. Download and load a model in Settings to use chat.'
+        );
+      }
 
-      // If we have selected meetings, search for relevant content first
+      // Retrieve relevant chunks first, then answer strictly from those chunks.
       let sources: ChatSource[] = [];
       let answer: string;
+      let retrieved: SemanticSearchResult[] = [];
 
       if (selectedMeetingIds.length > 0) {
-        // Search across all selected meetings and choose the most relevant one for context.
-        const searchResults = await searchInMeetings(content, selectedMeetingIds, 3);
-        const meetingId = searchResults[0]?.meeting_id ?? selectedMeetingIds[0];
-        const llmReady = await modelManager.ensureLlmReady();
-        if (!llmReady) {
-          throw new Error(
-            'Language model is not ready. Download and load a model in Settings to use chat.'
-          );
-        }
-        answer = await api.askMeetingQuestion(meetingId, content, history);
-        sources = mapSearchResultsToSources(searchResults.slice(0, 8));
+        retrieved = await searchInMeetings(
+          content,
+          selectedMeetingIds,
+          MEETING_SCOPED_RETRIEVAL_LIMIT
+        );
       } else {
-        // General search across all meetings
-        const searchResults = await api.semanticSearch(content, 5);
+        retrieved = await searchAcrossMeetings(content, GLOBAL_RETRIEVAL_LIMIT);
+      }
 
-        if (searchResults.length > 0) {
-          const llmReady = await modelManager.ensureLlmReady();
-          if (!llmReady) {
-            throw new Error(
-              'Language model is not ready. Download and load a model in Settings to use chat.'
-            );
-          }
-          // Use the first meeting for context
-          answer = await api.askMeetingQuestion(
-            searchResults[0].meeting_id,
-            content,
-            history
-          );
-          sources = mapSearchResultsToSources(searchResults);
-        } else {
-          answer =
-            "I couldn't find any relevant information in your meetings. Try asking about a specific topic that was discussed.";
-        }
+      if (retrieved.length > 0) {
+        const topChunks = retrieved.slice(0, MAX_RETRIEVAL_CONTEXT_CHUNKS);
+        answer = await api.answerWithRetrieval(
+          content,
+          toRetrievedContextChunks(topChunks),
+          history
+        );
+        sources = mapSearchResultsToSources(topChunks);
+      } else {
+        answer =
+          "I couldn't find any relevant information in your meetings. Try asking about a specific topic that was discussed.";
       }
 
       // Add assistant message
@@ -359,20 +430,29 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         );
       }
 
-      const answer = await api.askMeetingQuestion(meetingId, question, history);
+      const retrieved = await api.hybridSearch(
+        question,
+        MAX_RETRIEVAL_CONTEXT_CHUNKS,
+        meetingId
+      );
+      const topChunks = rankAndDedupeResults([retrieved]).slice(
+        0,
+        MAX_RETRIEVAL_CONTEXT_CHUNKS
+      );
+
+      const answer =
+        topChunks.length > 0
+          ? await api.answerWithRetrieval(
+              question,
+              toRetrievedContextChunks(topChunks),
+              history
+            )
+          : await api.askMeetingQuestion(meetingId, question, history);
 
       // Get sources
       let sources: ChatSource[] = [];
-      const embeddingReady = await modelManager.ensureEmbeddingReady();
-      if (embeddingReady) {
-        const searchResults = await api.semanticSearch(question, 3, meetingId);
-        sources = searchResults.map((r) => ({
-          meeting_id: r.meeting_id,
-          meeting_title: r.meeting_title,
-          excerpt: r.text,
-          start_ms: r.start_ms,
-          similarity: r.similarity,
-        }));
+      if (topChunks.length > 0) {
+        sources = mapSearchResultsToSources(topChunks);
       }
 
       const assistantMessage: ChatMessage = {

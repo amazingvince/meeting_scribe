@@ -677,6 +677,16 @@ export interface ChatHistoryMessage {
   content: string;
 }
 
+/** Retrieved chunk context for retrieval-grounded answers */
+export interface RetrievedContextChunk {
+  meeting_id: string;
+  meeting_title: string;
+  text: string;
+  start_ms: number | null;
+  end_ms: number | null;
+  similarity: number;
+}
+
 /** Answer a question about a meeting with optional conversation history */
 export async function askMeetingQuestion(
   meetingId: string,
@@ -686,6 +696,19 @@ export async function askMeetingQuestion(
   return invoke<string>('ask_meeting_question', {
     meetingId,
     question,
+    history,
+  });
+}
+
+/** Answer a question using retrieved chunks as context */
+export async function answerWithRetrieval(
+  question: string,
+  contextChunks: RetrievedContextChunk[],
+  history?: ChatHistoryMessage[]
+): Promise<string> {
+  return invoke<string>('answer_with_retrieval', {
+    question,
+    contextChunks,
     history,
   });
 }

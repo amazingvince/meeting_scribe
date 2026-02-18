@@ -36,11 +36,34 @@ export function LibraryView() {
   const [deleteTarget, setDeleteTarget] = useState<Meeting | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const handleMeetingClick = useCallback(
-    (meeting: Meeting) => {
-      navigate(`/meeting/${meeting.id}`);
+  const navigateToMeeting = useCallback(
+    (meetingId: string, startMs?: number | null) => {
+      const params = new URLSearchParams();
+      if (typeof startMs === 'number' && Number.isFinite(startMs) && startMs >= 0) {
+        params.set('t', String(Math.round(startMs)));
+      }
+
+      const search = params.toString();
+      navigate({
+        pathname: `/meeting/${meetingId}`,
+        search: search ? `?${search}` : '',
+      });
     },
     [navigate]
+  );
+
+  const handleMeetingClick = useCallback(
+    (meeting: Meeting) => {
+      navigateToMeeting(meeting.id);
+    },
+    [navigateToMeeting]
+  );
+
+  const handleJumpToMatch = useCallback(
+    (meeting: Meeting, startMs: number) => {
+      navigateToMeeting(meeting.id, startMs);
+    },
+    [navigateToMeeting]
   );
 
   const handleDeleteClick = useCallback((meeting: Meeting) => {
@@ -141,6 +164,7 @@ export function LibraryView() {
                       searchQuery={searchQuery}
                       searchMatch={searchMatches[meeting.id]}
                       onClick={() => handleMeetingClick(meeting)}
+                      onJumpToTimestamp={(startMs) => handleJumpToMatch(meeting, startMs)}
                       onDelete={() => handleDeleteClick(meeting)}
                     />
                   ))}

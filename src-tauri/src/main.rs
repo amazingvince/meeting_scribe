@@ -152,6 +152,7 @@ async fn main() {
             commands::llm::extract_action_items,
             commands::llm::generate_meeting_title,
             commands::llm::ask_meeting_question,
+            commands::llm::answer_with_retrieval,
             commands::llm::stream_meeting_question,
             commands::llm::generate_text,
             commands::llm::count_tokens,

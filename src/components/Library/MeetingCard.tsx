@@ -22,6 +22,7 @@ interface MeetingCardProps {
   searchQuery?: string;
   searchMatch?: MeetingSearchMatch;
   onClick: () => void;
+  onJumpToTimestamp?: (startMs: number) => void;
   onDelete: () => void;
 }
 
@@ -55,6 +56,7 @@ export function MeetingCard({
   searchQuery = '',
   searchMatch,
   onClick,
+  onJumpToTimestamp,
   onDelete,
 }: MeetingCardProps) {
   const [showMenu, setShowMenu] = useState(false);
@@ -78,6 +80,14 @@ export function MeetingCard({
   const handleMenuToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
     setShowMenu(!showMenu);
+  };
+
+  const handleJumpToTimestamp = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    if (searchMatch?.startMs == null) {
+      return;
+    }
+    onJumpToTimestamp?.(searchMatch.startMs);
   };
 
   return (
@@ -155,12 +165,23 @@ export function MeetingCard({
 
         {searchMatch && searchQuery.trim().length > 0 && (
           <div className="mt-3 rounded-lg border border-border bg-muted/50 px-3 py-2">
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
-              <Search className="h-3.5 w-3.5" />
-              <span>
-                {searchMatch.source === 'hybrid' ? 'Transcript match' : 'Title match'}
-                {searchMatch.startMs !== null ? ` • ${formatDuration(searchMatch.startMs)}` : ''}
+            <div className="flex items-center justify-between gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+              <span className="flex items-center gap-2">
+                <Search className="h-3.5 w-3.5" />
+                <span>
+                  {searchMatch.source === 'hybrid' ? 'Transcript match' : 'Title match'}
+                </span>
               </span>
+              {searchMatch.source === 'hybrid' &&
+                searchMatch.startMs !== null &&
+                onJumpToTimestamp && (
+                  <button
+                    onClick={handleJumpToTimestamp}
+                    className="font-mono normal-case tracking-normal text-brand hover:text-brand/80"
+                  >
+                    Jump to {formatDuration(searchMatch.startMs)}
+                  </button>
+                )}
             </div>
             <p className="mt-1 text-sm text-foreground line-clamp-2">
               {renderSnippet(searchMatch.snippet, searchQuery)}

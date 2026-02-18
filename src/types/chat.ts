@@ -32,6 +32,8 @@ export interface ChatSource {
   excerpt: string;
   /** Timestamp in the meeting (ms) */
   start_ms: number | null;
+  /** Optional end timestamp in the meeting (ms) */
+  end_ms?: number | null;
   /** Similarity score (0-1) */
   similarity: number;
 }
@@ -60,6 +62,8 @@ export interface SemanticSearchResult {
   chunk_type: string;
   text: string;
   start_ms: number | null;
+  end_ms: number | null;
+  chunk_index: number | null;
   similarity: number;
 }
 

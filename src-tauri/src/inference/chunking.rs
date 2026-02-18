@@ -100,64 +100,53 @@ pub fn chunk_transcript(segments: &[TranscriptSegmentInput], max_chars: usize) -
         max_chars
     };
 
+    if segments.is_empty() {
+        return Vec::new();
+    }
+
     let mut chunks = Vec::new();
-    let mut current_chunk = String::new();
-    let mut current_start: Option<i64> = None;
-    let mut current_end: Option<i64> = None;
-    let mut current_speaker: Option<Speaker> = None;
+    let mut current_segment_indexes = Vec::new();
+    let mut current_len = 0usize;
     let mut chunk_index = 0;
 
-    for segment in segments {
-        let speaker_label = segment.speaker.map(speaker_to_label).unwrap_or("SPEAKER");
+    for (idx, segment) in segments.iter().enumerate() {
+        let segment_len = transcript_segment_len(segment);
+        let would_exceed =
+            !current_segment_indexes.is_empty() && current_len + segment_len > max_chars;
 
-        let segment_text = format!("[{}] {}\n", speaker_label, segment.text);
-
-        // Check if adding this segment would exceed limit
-        if !current_chunk.is_empty() && current_chunk.len() + segment_text.len() > max_chars {
-            // Save current chunk
-            if current_chunk.len() >= MIN_CHUNK_CHARS {
-                let mut chunk = TextChunk::new(current_chunk.trim(), chunk_index);
-                if let (Some(start), Some(end)) = (current_start, current_end) {
-                    chunk = chunk.with_time_range(start, end);
-                }
-                if let Some(speaker) = current_speaker {
-                    chunk = chunk.with_speaker(speaker);
-                }
+        if would_exceed {
+            if let Some(chunk) =
+                build_transcript_chunk(segments, &current_segment_indexes, chunk_index)
+            {
                 chunks.push(chunk);
                 chunk_index += 1;
             }
 
-            // Start new chunk with overlap
-            let overlap_text = get_overlap_text(&current_chunk, CHUNK_OVERLAP);
-            current_chunk = overlap_text;
-            current_start = Some(segment.start_ms);
-            current_speaker = segment.speaker;
+            current_segment_indexes =
+                overlap_segment_indexes(segments, &current_segment_indexes, CHUNK_OVERLAP);
+            current_len = current_segment_indexes
+                .iter()
+                .map(|segment_idx| transcript_segment_len(&segments[*segment_idx]))
+                .sum();
+            if current_len > max_chars {
+                current_segment_indexes.clear();
+                current_len = 0;
+            }
         }
 
-        if current_start.is_none() {
-            current_start = Some(segment.start_ms);
-        }
-        current_end = Some(segment.end_ms);
-
-        // Track first speaker in chunk
-        if current_speaker.is_none() {
-            current_speaker = segment.speaker;
-        }
-
-        current_chunk.push_str(&segment_text);
+        current_segment_indexes.push(idx);
+        current_len += segment_len;
     }
 
     // Don't forget the last chunk
-    let trimmed = current_chunk.trim();
-    if !trimmed.is_empty() && (trimmed.len() >= MIN_CHUNK_CHARS || chunks.is_empty()) {
-        let mut chunk = TextChunk::new(trimmed, chunk_index);
-        if let (Some(start), Some(end)) = (current_start, current_end) {
-            chunk = chunk.with_time_range(start, end);
+    if let Some(chunk) = build_transcript_chunk(segments, &current_segment_indexes, chunk_index) {
+        if chunk.text.len() >= MIN_CHUNK_CHARS || chunks.is_empty() {
+            chunks.push(chunk);
+        } else if let Some(previous) = chunks.last_mut() {
+            previous.text.push('\n');
+            previous.text.push_str(&chunk.text);
+            previous.end_ms = chunk.end_ms;
         }
-        if let Some(speaker) = current_speaker {
-            chunk = chunk.with_speaker(speaker);
-        }
-        chunks.push(chunk);
     }
 
     chunks
@@ -246,6 +235,72 @@ fn get_overlap_text(text: &str, max_chars: usize) -> String {
     }
 
     search_text.to_string()
+}
+
+fn transcript_segment_text(segment: &TranscriptSegmentInput) -> String {
+    let speaker_label = segment.speaker.map(speaker_to_label).unwrap_or("SPEAKER");
+    format!("[{}] {}\n", speaker_label, segment.text)
+}
+
+fn transcript_segment_len(segment: &TranscriptSegmentInput) -> usize {
+    let speaker_label = segment.speaker.map(speaker_to_label).unwrap_or("SPEAKER");
+    // Prefix format: "[LABEL] " plus trailing '\n'
+    speaker_label.len() + segment.text.len() + 4
+}
+
+fn build_transcript_chunk(
+    segments: &[TranscriptSegmentInput],
+    segment_indexes: &[usize],
+    chunk_index: usize,
+) -> Option<TextChunk> {
+    if segment_indexes.is_empty() {
+        return None;
+    }
+
+    let chunk_text = segment_indexes
+        .iter()
+        .map(|idx| transcript_segment_text(&segments[*idx]))
+        .collect::<String>();
+    let trimmed = chunk_text.trim();
+
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let first = &segments[*segment_indexes.first()?];
+    let last = &segments[*segment_indexes.last()?];
+
+    let mut chunk =
+        TextChunk::new(trimmed, chunk_index).with_time_range(first.start_ms, last.end_ms);
+    if let Some(speaker) = first.speaker {
+        chunk = chunk.with_speaker(speaker);
+    }
+
+    Some(chunk)
+}
+
+fn overlap_segment_indexes(
+    segments: &[TranscriptSegmentInput],
+    segment_indexes: &[usize],
+    overlap_chars: usize,
+) -> Vec<usize> {
+    if overlap_chars == 0 || segment_indexes.is_empty() {
+        return Vec::new();
+    }
+
+    let mut overlap_reversed = Vec::new();
+    let mut overlap_len = 0usize;
+
+    for idx in segment_indexes.iter().rev() {
+        overlap_reversed.push(*idx);
+        overlap_len += transcript_segment_len(&segments[*idx]);
+        if overlap_len >= overlap_chars {
+            break;
+        }
+    }
+
+    overlap_reversed.reverse();
+    overlap_reversed
 }
 
 /// Split a very long chunk into smaller pieces

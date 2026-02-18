@@ -33,8 +33,17 @@ export function ChatView() {
   }, [messages]);
 
   const handleSourceClick = useCallback(
-    (meetingId: string, _startMs: number | null) => {
-      navigate(`/meeting/${meetingId}`);
+    (meetingId: string, startMs: number | null) => {
+      const params = new URLSearchParams();
+      if (typeof startMs === 'number' && Number.isFinite(startMs) && startMs >= 0) {
+        params.set('t', String(Math.round(startMs)));
+      }
+
+      const search = params.toString();
+      navigate({
+        pathname: `/meeting/${meetingId}`,
+        search: search ? `?${search}` : '',
+      });
     },
     [navigate]
   );

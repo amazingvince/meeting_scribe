@@ -44,11 +44,12 @@ pub use embedding::{
 
 // Re-export LLM commands
 pub use llm::{
-    ask_meeting_question, count_tokens, download_llm, extract_action_items, generate_meeting_title,
-    generate_summary, generate_text, get_llm_status, initialize_llm, is_llm_model_downloaded,
-    list_llm_models, load_llm_model, start_summary_generation, stream_meeting_question,
-    unload_llm_model, ChatTokenEvent, LlmModelInfo, LlmStatus, SharedLlmService,
-    SummaryGenerationFinishedEvent, SummaryGenerationProgressEvent,
+    answer_with_retrieval, ask_meeting_question, count_tokens, download_llm, extract_action_items,
+    generate_meeting_title, generate_summary, generate_text, get_llm_status, initialize_llm,
+    is_llm_model_downloaded, list_llm_models, load_llm_model, start_summary_generation,
+    stream_meeting_question, unload_llm_model, ChatTokenEvent, LlmModelInfo, LlmStatus,
+    RetrievedContextChunk, SharedLlmService, SummaryGenerationFinishedEvent,
+    SummaryGenerationProgressEvent,
 };
 
 /// Basic greeting command for testing IPC

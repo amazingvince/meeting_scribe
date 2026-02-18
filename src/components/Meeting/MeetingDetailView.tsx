@@ -2,8 +2,8 @@
  * Meeting detail view with tabs for transcript, summary, and notes
  */
 
-import { useCallback, useState, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useState, useRef } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { FileQuestion } from 'lucide-react';
 import { useMeeting } from '../../hooks';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/Tabs';
@@ -18,6 +18,7 @@ import { NotesPanel } from './NotesPanel';
 export function MeetingDetailView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const {
     meeting,
     transcript,
@@ -50,6 +51,46 @@ export function MeetingDetailView() {
     audioPlayerRef.current?.seekTo(ms);
     audioPlayerRef.current?.play();
   }, []);
+
+  useEffect(() => {
+    if (!meeting) {
+      return;
+    }
+
+    const targetParam = searchParams.get('t');
+    if (!targetParam) {
+      return;
+    }
+
+    const parsedTargetMs = Number.parseInt(targetParam, 10);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('t');
+    setSearchParams(nextParams, { replace: true });
+
+    if (!Number.isFinite(parsedTargetMs) || parsedTargetMs < 0) {
+      return;
+    }
+
+    const clampedTargetMs =
+      meeting.duration_ms != null
+        ? Math.min(parsedTargetMs, meeting.duration_ms)
+        : parsedTargetMs;
+
+    setActiveTab('transcript');
+
+    // Delay slightly so the audio elements are mounted before seeking.
+    const timer = window.setTimeout(() => {
+      handleTimestampClick(clampedTargetMs);
+    }, 120);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    meeting,
+    meeting?.duration_ms,
+    handleTimestampClick,
+    searchParams,
+    setSearchParams,
+  ]);
 
   if (isLoading) {
     return (

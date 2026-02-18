@@ -6,6 +6,7 @@ import { User, Bot, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatMessage as ChatMessageType, ChatSource } from '../../types';
+import { formatDuration } from '../../utils/format';
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -147,6 +148,13 @@ interface SourceBadgeProps {
 }
 
 function SourceBadge({ source, onClick }: SourceBadgeProps) {
+  const timeLabel =
+    source.start_ms !== null
+      ? source.end_ms != null
+        ? `${formatDuration(source.start_ms)}-${formatDuration(source.end_ms)}`
+        : formatDuration(source.start_ms)
+      : null;
+
   return (
     <button
       onClick={onClick}
@@ -154,6 +162,7 @@ function SourceBadge({ source, onClick }: SourceBadgeProps) {
     >
       <ExternalLink className="w-2.5 h-2.5" />
       {source.meeting_title || 'Meeting'} · {Math.round(source.similarity * 100)}%
+      {timeLabel ? ` · ${timeLabel}` : ''}
     </button>
   );
 }

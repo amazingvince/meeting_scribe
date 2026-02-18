@@ -438,6 +438,8 @@ pub async fn semantic_search(
                 chunk_type: r.chunk_type,
                 text: r.text,
                 start_ms: r.start_ms,
+                end_ms: r.end_ms,
+                chunk_index: r.chunk_index,
                 similarity: r.similarity,
             }
         })
@@ -547,7 +549,14 @@ pub async fn hybrid_search(
 
     // Add vector results with their ranks
     for (rank, result) in vector_results.iter().enumerate() {
-        let key = hybrid_result_key(&result.meeting_id, result.start_ms, &result.text);
+        let key = hybrid_result_key(
+            &result.meeting_id,
+            &result.chunk_type,
+            result.start_ms,
+            result.end_ms,
+            result.chunk_index,
+            &result.text,
+        );
         let rrf_score = 1.0 / (RRF_K + rank as f32 + 1.0);
 
         result_map
@@ -561,7 +570,14 @@ pub async fn hybrid_search(
 
     // Add FTS results with their ranks
     for (rank, fts_hit) in fts_results.iter().enumerate() {
-        let key = hybrid_result_key(&fts_hit.meeting_id, Some(fts_hit.start_ms), &fts_hit.text);
+        let key = hybrid_result_key(
+            &fts_hit.meeting_id,
+            "fts",
+            Some(fts_hit.start_ms),
+            Some(fts_hit.end_ms),
+            Some(fts_hit.segment_id),
+            &fts_hit.text,
+        );
         let rrf_score = 1.0 / (RRF_K + rank as f32 + 1.0);
 
         result_map
@@ -577,6 +593,8 @@ pub async fn hybrid_search(
                         chunk_type: "fts".to_string(),
                         text: fts_hit.text.clone(),
                         start_ms: Some(fts_hit.start_ms),
+                        end_ms: Some(fts_hit.end_ms),
+                        chunk_index: Some(fts_hit.segment_id),
                         similarity: 0.0, // FTS doesn't have similarity score
                     },
                     rrf_score,
@@ -611,11 +629,24 @@ fn normalize_text(text: &str) -> String {
         .join(" ")
 }
 
-fn hybrid_result_key(meeting_id: &str, start_ms: Option<i64>, text: &str) -> String {
+fn hybrid_result_key(
+    meeting_id: &str,
+    chunk_type: &str,
+    start_ms: Option<i64>,
+    end_ms: Option<i64>,
+    chunk_index: Option<i64>,
+    text: &str,
+) -> String {
+    if let Some(index) = chunk_index {
+        return format!("{}::{}::idx::{}", meeting_id, chunk_type, index);
+    }
+
     format!(
-        "{}::{}::{}",
+        "{}::{}::{}::{}::{}",
         meeting_id,
+        chunk_type,
         start_ms.unwrap_or(-1),
+        end_ms.unwrap_or(-1),
         normalize_text(text)
     )
 }
@@ -871,6 +902,8 @@ pub struct SemanticSearchResult {
     pub chunk_type: String,
     pub text: String,
     pub start_ms: Option<i64>,
+    pub end_ms: Option<i64>,
+    pub chunk_index: Option<i64>,
     pub similarity: f32,
 }
 
@@ -880,15 +913,43 @@ mod tests {
 
     #[test]
     fn hybrid_result_key_is_scoped_by_meeting() {
-        let key_a = hybrid_result_key("meeting-a", Some(1_000), "same text");
-        let key_b = hybrid_result_key("meeting-b", Some(1_000), "same text");
+        let key_a = hybrid_result_key(
+            "meeting-a",
+            "transcript",
+            Some(1_000),
+            Some(2_000),
+            None,
+            "same text",
+        );
+        let key_b = hybrid_result_key(
+            "meeting-b",
+            "transcript",
+            Some(1_000),
+            Some(2_000),
+            None,
+            "same text",
+        );
         assert_ne!(key_a, key_b);
     }
 
     #[test]
     fn hybrid_result_key_is_scoped_by_start_time() {
-        let key_a = hybrid_result_key("meeting-a", Some(1_000), "same text");
-        let key_b = hybrid_result_key("meeting-a", Some(2_000), "same text");
+        let key_a = hybrid_result_key(
+            "meeting-a",
+            "transcript",
+            Some(1_000),
+            Some(2_000),
+            None,
+            "same text",
+        );
+        let key_b = hybrid_result_key(
+            "meeting-a",
+            "transcript",
+            Some(2_000),
+            Some(3_000),
+            None,
+            "same text",
+        );
         assert_ne!(key_a, key_b);
     }
 }

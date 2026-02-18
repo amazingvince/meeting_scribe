@@ -32,6 +32,10 @@ src-tauri/models/
 ort-runtime/
 onnxruntime-temp/
 onnxruntime*.zip
+src-tauri/resources/runtime/.onnxruntime-staged.json
+src-tauri/resources/runtime/libonnxruntime*.dylib
+src-tauri/resources/runtime/libonnxruntime*.so*
+src-tauri/resources/runtime/onnxruntime*.dll
 
 # Local Cargo config
 .cargo/

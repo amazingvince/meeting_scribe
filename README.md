@@ -46,6 +46,8 @@ pnpm tauri build
 pnpm tauri build --debug
 ```
 
+`pnpm tauri ...` now stages the same pinned ONNX Runtime binaries used by release builds into `src-tauri/resources/runtime` before invoking Tauri. The first run on a machine may download these files.
+
 ### macOS Notes
 - Grant Microphone permission when prompted.
 - Grant System Audio Capture permission when prompted (macOS Process Tap).
