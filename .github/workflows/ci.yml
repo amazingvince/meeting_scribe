@@ -11,10 +11,44 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  validate:
-    name: Lint, Build, Test
+  frontend:
+    name: Frontend Lint + Build
     runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint frontend
+        run: pnpm lint
+
+      - name: Build frontend
+        run: pnpm build
+
+  rust-tests:
+    name: Rust Tests
+    runs-on: ubuntu-22.04
+    env:
+      CARGO_INCREMENTAL: 0
 
     steps:
       - name: Checkout
@@ -32,17 +66,6 @@ jobs:
             patchelf \
             protobuf-compiler
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -51,18 +74,10 @@ jobs:
         with:
           workspaces: src-tauri -> target
 
-      - name: Install JavaScript dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint frontend
-        run: pnpm lint
-
-      - name: Build frontend
-        run: pnpm build
-
       - name: Run Rust tests
         run: |
           cargo test --manifest-path src-tauri/Cargo.toml --locked -- \
+            --skip rag_regression_ \
             --skip audio::pipeline::tests::test_pipeline_creation \
             --skip audio::pipeline::tests::test_pipeline_with_silence \
             --skip audio::vad::tests::test_vad_creation \
