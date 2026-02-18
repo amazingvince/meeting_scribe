@@ -518,6 +518,21 @@ export async function hybridSearch(
   });
 }
 
+/** Fetch transcript chunks near a given chunk index */
+export async function adjacentTranscriptChunks(
+  meetingId: string,
+  chunkIndex: number,
+  radius?: number,
+  limit?: number
+): Promise<SemanticSearchResult[]> {
+  return invoke<SemanticSearchResult[]>('adjacent_transcript_chunks', {
+    meetingId,
+    chunkIndex,
+    radius,
+    limit,
+  });
+}
+
 /** Unload embedding model */
 export async function unloadEmbedding(): Promise<boolean> {
   return invoke<boolean>('unload_embedding');
@@ -554,9 +569,25 @@ export interface BatchEmbedResult {
   failed: FailedMeeting[];
 }
 
+/** Result of automatic vector index repair */
+export interface VectorReindexRepairResult {
+  needed: boolean;
+  attempted: boolean;
+  completed: boolean;
+  processed: number;
+  total: number;
+  failed: number;
+  message: string;
+}
+
 /** Batch embed all meetings that don't have embeddings */
 export async function batchEmbedMeetings(): Promise<BatchEmbedResult> {
   return invoke<BatchEmbedResult>('batch_embed_meetings');
+}
+
+/** Rebuild vector embeddings when schema migrations invalidate existing index */
+export async function repairVectorIndexIfNeeded(): Promise<VectorReindexRepairResult> {
+  return invoke<VectorReindexRepairResult>('repair_vector_index_if_needed');
 }
 
 /** Batch embed progress event */
@@ -707,6 +738,21 @@ export async function answerWithRetrieval(
   history?: ChatHistoryMessage[]
 ): Promise<string> {
   return invoke<string>('answer_with_retrieval', {
+    question,
+    contextChunks,
+    history,
+  });
+}
+
+/** Stream an answer using retrieved chunks as context */
+export async function streamAnswerWithRetrieval(
+  streamId: string,
+  question: string,
+  contextChunks: RetrievedContextChunk[],
+  history?: ChatHistoryMessage[]
+): Promise<void> {
+  return invoke<void>('stream_answer_with_retrieval', {
+    streamId,
     question,
     contextChunks,
     history,

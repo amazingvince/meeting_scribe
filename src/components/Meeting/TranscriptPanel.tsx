@@ -2,7 +2,7 @@
  * Transcript panel with scrollable transcript segments
  */
 
-import { useMemo, useState, useCallback, useEffect } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import type { MeetingStatus, TranscriptSegment } from '../../types';
 import { NoTranscriptEmpty } from '../ui/EmptyState';
@@ -26,6 +26,7 @@ interface TranscriptPanelProps {
   audioPathOthers?: string | null;
   isLoading: boolean;
   onTimestampClick?: (ms: number) => void;
+  focusTimestampMs?: number | null;
 }
 
 
@@ -37,12 +38,15 @@ export function TranscriptPanel({
   audioPathOthers,
   isLoading,
   onTimestampClick,
+  focusTimestampMs = null,
 }: TranscriptPanelProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showLoadModal, setShowLoadModal] = useState(false);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
+  const [highlightedSegmentKey, setHighlightedSegmentKey] = useState<string | null>(null);
   const [processingProgress, setProcessingProgress] =
     useState<MeetingProcessingProgressEvent | null>(null);
+  const segmentRefs = useRef<Map<string, HTMLSpanElement>>(new Map());
   const toast = useToastStore();
   const settings = useSettingsStore();
   const { fetchMeeting, fetchTranscript } = useMeetingsStore();
@@ -181,6 +185,12 @@ export function TranscriptPanel({
     </div>
   ) : null;
 
+  const buildSegmentKey = useCallback(
+    (segment: TranscriptSegment, index: number) =>
+      `${segment.id ?? 'segment'}:${segment.start_ms}:${index}`,
+    []
+  );
+
   // Group consecutive segments by speaker
   const groupedSegments = useMemo(() => {
     if (segments.length === 0) return [];
@@ -188,12 +198,12 @@ export function TranscriptPanel({
     const groups: {
       speaker: string;
       startMs: number;
-      segments: TranscriptSegment[];
+      segments: Array<{ segment: TranscriptSegment; index: number }>;
     }[] = [];
 
     let currentGroup: (typeof groups)[0] | null = null;
 
-    for (const segment of segments) {
+    for (const [index, segment] of segments.entries()) {
       if (!currentGroup || currentGroup.speaker !== segment.speaker) {
         if (currentGroup) {
           groups.push(currentGroup);
@@ -201,10 +211,10 @@ export function TranscriptPanel({
         currentGroup = {
           speaker: segment.speaker,
           startMs: segment.start_ms,
-          segments: [segment],
+          segments: [{ segment, index }],
         };
       } else {
-        currentGroup.segments.push(segment);
+        currentGroup.segments.push({ segment, index });
       }
     }
 
@@ -214,6 +224,42 @@ export function TranscriptPanel({
 
     return groups;
   }, [segments]);
+
+  useEffect(() => {
+    if (focusTimestampMs === null || segments.length === 0) {
+      return;
+    }
+
+    let nearestIndex = 0;
+    let nearestDiff = Number.POSITIVE_INFINITY;
+    for (const [index, segment] of segments.entries()) {
+      const diff = Math.abs(segment.start_ms - focusTimestampMs);
+      if (diff < nearestDiff) {
+        nearestDiff = diff;
+        nearestIndex = index;
+      }
+    }
+
+    const nearestSegment = segments[nearestIndex];
+    const key = buildSegmentKey(nearestSegment, nearestIndex);
+    setHighlightedSegmentKey(key);
+
+    const scrollTimer = window.setTimeout(() => {
+      segmentRefs.current.get(key)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    }, 80);
+
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedSegmentKey((prev) => (prev === key ? null : prev));
+    }, 9000);
+
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [focusTimestampMs, segments, buildSegmentKey]);
 
   if (isLoading) {
     return (
@@ -297,15 +343,30 @@ export function TranscriptPanel({
               </button>
             </div>
             <div className="leading-relaxed text-foreground/80">
-              {group.segments.map((segment, segIdx) => (
-                <span
-                  key={segIdx}
-                  className="hover:bg-highlight/40 cursor-pointer rounded px-0.5"
-                  onClick={() => onTimestampClick?.(segment.start_ms)}
-                >
-                  {segment.text}{' '}
-                </span>
-              ))}
+              {group.segments.map(({ segment, index }) => {
+                const key = buildSegmentKey(segment, index);
+                const isHighlighted = highlightedSegmentKey === key;
+                return (
+                  <span
+                    key={key}
+                    ref={(element) => {
+                      if (element) {
+                        segmentRefs.current.set(key, element);
+                      } else {
+                        segmentRefs.current.delete(key);
+                      }
+                    }}
+                    className={`cursor-pointer rounded px-0.5 transition-colors ${
+                      isHighlighted
+                        ? 'bg-highlight/70 ring-1 ring-brand/40'
+                        : 'hover:bg-highlight/40'
+                    }`}
+                    onClick={() => onTimestampClick?.(segment.start_ms)}
+                  >
+                    {segment.text}{' '}
+                  </span>
+                );
+              })}
             </div>
           </div>
         ))}

@@ -35,11 +35,12 @@ pub use storage::{
 
 // Re-export embedding commands
 pub use embedding::{
-    batch_embed_meetings, calculate_similarity, delete_embedding, embed_meeting_transcript,
-    embed_text, get_embedding_info, get_unembedded_meetings, hybrid_search, initialize_embedding,
-    is_embedding_downloaded, is_embedding_ready, semantic_search, unload_embedding,
-    BatchEmbedProgress, BatchEmbedResult, EmbeddingDownloadProgress, EmbeddingInfo,
-    SemanticSearchResult, SharedEmbeddingService, UnembeddedMeeting,
+    adjacent_transcript_chunks, batch_embed_meetings, calculate_similarity, delete_embedding,
+    embed_meeting_transcript, embed_text, get_embedding_info, get_unembedded_meetings,
+    hybrid_search, initialize_embedding, is_embedding_downloaded, is_embedding_ready,
+    repair_vector_index_if_needed, semantic_search, unload_embedding, BatchEmbedProgress,
+    BatchEmbedResult, EmbeddingDownloadProgress, EmbeddingInfo, SemanticSearchResult,
+    SharedEmbeddingService, UnembeddedMeeting, VectorReindexRepairResult,
 };
 
 // Re-export LLM commands
@@ -47,9 +48,9 @@ pub use llm::{
     answer_with_retrieval, ask_meeting_question, count_tokens, download_llm, extract_action_items,
     generate_meeting_title, generate_summary, generate_text, get_llm_status, initialize_llm,
     is_llm_model_downloaded, list_llm_models, load_llm_model, start_summary_generation,
-    stream_meeting_question, unload_llm_model, ChatTokenEvent, LlmModelInfo, LlmStatus,
-    RetrievedContextChunk, SharedLlmService, SummaryGenerationFinishedEvent,
-    SummaryGenerationProgressEvent,
+    stream_answer_with_retrieval, stream_meeting_question, unload_llm_model, ChatTokenEvent,
+    LlmModelInfo, LlmStatus, RetrievedContextChunk, SharedLlmService,
+    SummaryGenerationFinishedEvent, SummaryGenerationProgressEvent,
 };
 
 /// Basic greeting command for testing IPC

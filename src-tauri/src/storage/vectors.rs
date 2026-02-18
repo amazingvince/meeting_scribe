@@ -9,10 +9,11 @@ use arrow_array::{
 };
 use arrow_schema::{DataType, Field, Schema};
 use futures_util::TryStreamExt;
-use lancedb::query::{ExecutableQuery, QueryBase};
+use lancedb::query::{ExecutableQuery, QueryBase, Select};
 use lancedb::{connect, Connection, Table};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
@@ -27,6 +28,8 @@ fn quote_lance_string(value: &str) -> String {
 pub struct VectorStore {
     db: Connection,
     table_name: String,
+    reindex_required: AtomicBool,
+    reindex_marker_path: PathBuf,
 }
 
 impl VectorStore {
@@ -45,9 +48,14 @@ impl VectorStore {
 
         info!("Connected to vector store at {:?}", path);
 
+        let reindex_marker_path = path.join("reindex_required.flag");
+        let reindex_required = reindex_marker_path.exists();
+
         Ok(Self {
             db,
             table_name: "embeddings".to_string(),
+            reindex_required: AtomicBool::new(reindex_required),
+            reindex_marker_path,
         })
     }
 
@@ -106,8 +114,34 @@ impl VectorStore {
             .await
             .context("Failed to drop incompatible embeddings table")?;
         self.create_embeddings_table().await?;
+        self.mark_reindex_required(true)?;
 
         Ok(())
+    }
+
+    fn mark_reindex_required(&self, required: bool) -> Result<()> {
+        self.reindex_required.store(required, Ordering::SeqCst);
+
+        if required {
+            std::fs::write(
+                &self.reindex_marker_path,
+                b"Vector schema changed; transcript reindex required.",
+            )
+            .context("Failed to create vector reindex marker file")?;
+        } else if self.reindex_marker_path.exists() {
+            std::fs::remove_file(&self.reindex_marker_path)
+                .context("Failed to clear vector reindex marker file")?;
+        }
+
+        Ok(())
+    }
+
+    pub fn is_reindex_required(&self) -> bool {
+        self.reindex_required.load(Ordering::SeqCst) || self.reindex_marker_path.exists()
+    }
+
+    pub fn clear_reindex_required(&self) -> Result<()> {
+        self.mark_reindex_required(false)
     }
 
     async fn create_embeddings_table(&self) -> Result<()> {
@@ -327,6 +361,122 @@ impl VectorStore {
 
         debug!("Vector search returned {} results", search_results.len());
         Ok(search_results)
+    }
+
+    /// Fetch transcript chunks around a chunk index.
+    pub async fn transcript_chunks_near_index(
+        &self,
+        meeting_id: &str,
+        chunk_index: i64,
+        radius: i64,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
+        let table = self.get_table().await?;
+        let start = chunk_index.saturating_sub(radius.max(0));
+        let end = chunk_index.saturating_add(radius.max(0));
+        let filter = format!(
+            "meeting_id = {} AND chunk_type = 'transcript' AND chunk_index >= {} AND chunk_index <= {}",
+            quote_lance_string(meeting_id),
+            start,
+            end
+        );
+
+        let mut batches = table
+            .query()
+            .only_if(&filter)
+            .select(Select::columns(&[
+                "id",
+                "meeting_id",
+                "chunk_type",
+                "text",
+                "start_ms",
+                "end_ms",
+                "chunk_index",
+            ]))
+            .limit(limit.max(1))
+            .execute()
+            .await
+            .context("Failed to query adjacent transcript chunks")?;
+
+        let mut results = Vec::new();
+        while let Some(batch) = batches.try_next().await? {
+            let ids = batch
+                .column_by_name("id")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .context("Missing id column")?;
+
+            let meeting_ids = batch
+                .column_by_name("meeting_id")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .context("Missing meeting_id column")?;
+
+            let chunk_types = batch
+                .column_by_name("chunk_type")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .context("Missing chunk_type column")?;
+
+            let texts = batch
+                .column_by_name("text")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
+                .context("Missing text column")?;
+
+            let start_ms_arr = batch
+                .column_by_name("start_ms")
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let end_ms_arr = batch
+                .column_by_name("end_ms")
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+            let chunk_index_arr = batch
+                .column_by_name("chunk_index")
+                .and_then(|c| c.as_any().downcast_ref::<Int64Array>());
+
+            for i in 0..batch.num_rows() {
+                results.push(SearchResult {
+                    id: ids.value(i).to_string(),
+                    meeting_id: meeting_ids.value(i).to_string(),
+                    chunk_type: chunk_types.value(i).to_string(),
+                    text: texts.value(i).to_string(),
+                    start_ms: start_ms_arr.and_then(|arr| {
+                        if arr.is_null(i) {
+                            None
+                        } else {
+                            Some(arr.value(i))
+                        }
+                    }),
+                    end_ms: end_ms_arr.and_then(|arr| {
+                        if arr.is_null(i) {
+                            None
+                        } else {
+                            Some(arr.value(i))
+                        }
+                    }),
+                    chunk_index: chunk_index_arr.and_then(|arr| {
+                        if arr.is_null(i) {
+                            None
+                        } else {
+                            Some(arr.value(i))
+                        }
+                    }),
+                    similarity: 0.0,
+                    distance: 1.0,
+                });
+            }
+        }
+
+        results.sort_by(|a, b| {
+            let index_cmp = a
+                .chunk_index
+                .unwrap_or(i64::MAX)
+                .cmp(&b.chunk_index.unwrap_or(i64::MAX));
+            if index_cmp == std::cmp::Ordering::Equal {
+                a.start_ms
+                    .unwrap_or(i64::MAX)
+                    .cmp(&b.start_ms.unwrap_or(i64::MAX))
+            } else {
+                index_cmp
+            }
+        });
+        Ok(results)
     }
 
     /// Delete embeddings for a meeting

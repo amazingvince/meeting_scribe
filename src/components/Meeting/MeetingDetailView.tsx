@@ -30,6 +30,7 @@ export function MeetingDetailView() {
 
   const audioPlayerRef = useRef<AudioPlayerHandle>(null);
   const [activeTab, setActiveTab] = useState('transcript');
+  const [focusTimestampMs, setFocusTimestampMs] = useState<number | null>(null);
 
   const handleBack = useCallback(() => {
     navigate('/library');
@@ -48,6 +49,7 @@ export function MeetingDetailView() {
   );
 
   const handleTimestampClick = useCallback((ms: number) => {
+    setFocusTimestampMs(ms);
     audioPlayerRef.current?.seekTo(ms);
     audioPlayerRef.current?.play();
   }, []);
@@ -77,6 +79,7 @@ export function MeetingDetailView() {
         : parsedTargetMs;
 
     setActiveTab('transcript');
+    setFocusTimestampMs(clampedTargetMs);
 
     // Delay slightly so the audio elements are mounted before seeking.
     const timer = window.setTimeout(() => {
@@ -158,6 +161,7 @@ export function MeetingDetailView() {
               audioPathOthers={meeting.audio_path_others}
               isLoading={isLoadingTranscript}
               onTimestampClick={handleTimestampClick}
+              focusTimestampMs={focusTimestampMs}
             />
           </TabsContent>
 

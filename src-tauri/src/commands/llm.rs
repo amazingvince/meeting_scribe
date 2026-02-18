@@ -767,6 +767,101 @@ pub fn answer_with_retrieval(
         .map_err(|e| format!("Failed to answer question: {}", e))
 }
 
+/// Stream an answer using retrieved RAG chunks as context.
+#[tauri::command]
+pub fn stream_answer_with_retrieval(
+    app: AppHandle,
+    llm: tauri::State<'_, SharedLlmService>,
+    stream_id: String,
+    question: String,
+    context_chunks: Vec<RetrievedContextChunk>,
+    history: Option<Vec<ChatHistoryMessage>>,
+) -> Result<(), String> {
+    let fallback_response = if context_chunks.is_empty() {
+        Some("I couldn't find any relevant information in your meetings for that question.")
+    } else {
+        None
+    };
+
+    if let Some(message) = fallback_response {
+        let _ = app.emit(
+            "chat-token",
+            ChatTokenEvent {
+                stream_id: stream_id.clone(),
+                token: message.to_string(),
+                done: false,
+            },
+        );
+        let _ = app.emit(
+            "chat-token",
+            ChatTokenEvent {
+                stream_id,
+                token: String::new(),
+                done: true,
+            },
+        );
+        return Ok(());
+    }
+
+    let context = format_context_chunks(&context_chunks);
+    if context.trim().is_empty() {
+        let _ = app.emit(
+            "chat-token",
+            ChatTokenEvent {
+                stream_id: stream_id.clone(),
+                token:
+                    "I found related meetings, but there wasn't enough context to answer confidently."
+                        .to_string(),
+                done: false,
+            },
+        );
+        let _ = app.emit(
+            "chat-token",
+            ChatTokenEvent {
+                stream_id,
+                token: String::new(),
+                done: true,
+            },
+        );
+        return Ok(());
+    }
+
+    let chat_history = format_chat_history(history);
+    let prompt = crate::inference::prompts::rag_chat_prompt(&context, &question, &chat_history);
+    let config = GenerationConfig::for_chat();
+
+    let service = llm.lock();
+    if !service.is_loaded() {
+        return Err("Language model is not initialized".to_string());
+    }
+
+    let app_handle = app.clone();
+    let stream_id_clone = stream_id.clone();
+    let result = service.generate_stream(&prompt, &config, |token| {
+        let _ = app_handle.emit(
+            "chat-token",
+            ChatTokenEvent {
+                stream_id: stream_id_clone.clone(),
+                token: token.to_string(),
+                done: false,
+            },
+        );
+    });
+
+    let _ = app.emit(
+        "chat-token",
+        ChatTokenEvent {
+            stream_id,
+            token: String::new(),
+            done: true,
+        },
+    );
+
+    result
+        .map(|_| ())
+        .map_err(|e| format!("Streaming failed: {}", e))
+}
+
 /// Generate raw text (for testing/debugging)
 #[tauri::command]
 pub fn generate_text(

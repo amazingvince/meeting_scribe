@@ -67,3 +67,6 @@ jobs:
             --skip audio::pipeline::tests::test_pipeline_with_silence \
             --skip audio::vad::tests::test_vad_creation \
             --skip audio::vad::tests::test_vad_with_silence
+
+      - name: Run RAG regression checks
+        run: cargo test --manifest-path src-tauri/Cargo.toml rag_regression --locked

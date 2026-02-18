@@ -15,7 +15,7 @@ use std::io::Write as IoWrite;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use tauri::{AppHandle, Emitter};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::SharedStorageState;
 
@@ -25,6 +25,11 @@ pub type SharedEmbeddingService = Arc<Mutex<Option<Arc<EmbeddingService>>>>;
 fn embedding_init_mutex() -> &'static tokio::sync::Mutex<()> {
     static EMBEDDING_INIT_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
     EMBEDDING_INIT_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+fn vector_reindex_mutex() -> &'static tokio::sync::Mutex<()> {
+    static VECTOR_REINDEX_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    VECTOR_REINDEX_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()))
 }
 
 async fn ensure_embedding_initialized(
@@ -621,6 +626,129 @@ pub async fn hybrid_search(
     Ok(final_results)
 }
 
+/// Fetch transcript chunks adjacent to an indexed chunk.
+#[tauri::command]
+pub async fn adjacent_transcript_chunks(
+    storage: tauri::State<'_, SharedStorageState>,
+    meeting_id: String,
+    chunk_index: i64,
+    radius: Option<i64>,
+    limit: Option<usize>,
+) -> Result<Vec<SemanticSearchResult>, String> {
+    let radius = radius.unwrap_or(1).max(0);
+    let limit = limit.unwrap_or(6).clamp(1, 24);
+
+    let (vectors, meeting_title) = {
+        let storage_guard = storage.lock();
+        let repos = storage_guard.repositories();
+        let title = repos
+            .meetings
+            .get(&meeting_id)
+            .map_err(|e| e.to_string())?
+            .map(|meeting| meeting.title)
+            .unwrap_or_else(|| "Unknown Meeting".to_string());
+        (storage_guard.vectors.clone(), title)
+    };
+
+    let chunks = vectors
+        .transcript_chunks_near_index(&meeting_id, chunk_index, radius, limit)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(chunks
+        .into_iter()
+        .map(|chunk| SemanticSearchResult {
+            id: chunk.id,
+            meeting_id: chunk.meeting_id,
+            meeting_title: meeting_title.clone(),
+            chunk_type: chunk.chunk_type,
+            text: chunk.text,
+            start_ms: chunk.start_ms,
+            end_ms: chunk.end_ms,
+            chunk_index: chunk.chunk_index,
+            similarity: chunk.similarity,
+        })
+        .collect())
+}
+
+/// Run background vector reindex if schema upgrade invalidated existing embeddings.
+#[tauri::command]
+pub async fn repair_vector_index_if_needed(
+    app: AppHandle,
+    config: tauri::State<'_, crate::AppConfig>,
+    embedding: tauri::State<'_, SharedEmbeddingService>,
+    storage: tauri::State<'_, SharedStorageState>,
+) -> Result<VectorReindexRepairResult, String> {
+    let _guard = vector_reindex_mutex().lock().await;
+
+    let vectors = {
+        let storage_guard = storage.lock();
+        storage_guard.vectors.clone()
+    };
+
+    if !vectors.is_reindex_required() {
+        return Ok(VectorReindexRepairResult {
+            needed: false,
+            attempted: false,
+            completed: true,
+            processed: 0,
+            total: 0,
+            failed: 0,
+            message: "Vector index is already up to date.".to_string(),
+        });
+    }
+
+    if !is_embedding_downloaded(config.clone()) {
+        return Ok(VectorReindexRepairResult {
+            needed: true,
+            attempted: false,
+            completed: false,
+            processed: 0,
+            total: 0,
+            failed: 0,
+            message: "Vector index rebuild is pending until the embedding model is downloaded."
+                .to_string(),
+        });
+    }
+
+    ensure_embedding_initialized(&app, &config, embedding.inner()).await?;
+
+    let result = batch_embed_meetings(app, config.clone(), embedding, storage).await?;
+    let failed_count = result.failed.len();
+    let completed = failed_count == 0;
+
+    if completed {
+        vectors
+            .clear_reindex_required()
+            .map_err(|e| format!("Failed to finalize vector reindex: {}", e))?;
+    } else {
+        warn!(
+            "Vector reindex attempted but {} meeting(s) failed; keeping rebuild flag set",
+            failed_count
+        );
+    }
+
+    Ok(VectorReindexRepairResult {
+        needed: true,
+        attempted: true,
+        completed,
+        processed: result.processed,
+        total: result.total,
+        failed: failed_count,
+        message: if completed {
+            format!(
+                "Vector index rebuilt successfully for {} meeting(s).",
+                result.processed
+            )
+        } else {
+            format!(
+                "Vector reindex completed with {} failure(s); will retry automatically.",
+                failed_count
+            )
+        },
+    })
+}
+
 /// Normalize text for deduplication
 fn normalize_text(text: &str) -> String {
     text.to_lowercase()
@@ -871,6 +999,18 @@ pub struct FailedMeeting {
     pub error: String,
 }
 
+/// Result of attempting vector reindex repair after schema migrations
+#[derive(Debug, Clone, Serialize)]
+pub struct VectorReindexRepairResult {
+    pub needed: bool,
+    pub attempted: bool,
+    pub completed: bool,
+    pub processed: usize,
+    pub total: usize,
+    pub failed: usize,
+    pub message: String,
+}
+
 /// Download progress event for embedding model
 #[derive(Debug, Clone, Serialize)]
 pub struct EmbeddingDownloadProgress {
@@ -909,7 +1049,83 @@ pub struct SemanticSearchResult {
 
 #[cfg(test)]
 mod tests {
-    use super::hybrid_result_key;
+    use super::{hybrid_result_key, HybridResult, SemanticSearchResult};
+    use std::collections::HashMap;
+
+    #[derive(Clone)]
+    struct FtsStub {
+        meeting_id: String,
+        meeting_title: String,
+        segment_id: i64,
+        start_ms: i64,
+        end_ms: i64,
+        text: String,
+    }
+
+    fn fuse_for_test(
+        vector_results: &[SemanticSearchResult],
+        fts_results: &[FtsStub],
+        limit: usize,
+    ) -> Vec<SemanticSearchResult> {
+        const RRF_K: f32 = 60.0;
+        let mut result_map: HashMap<String, HybridResult> = HashMap::new();
+
+        for (rank, result) in vector_results.iter().enumerate() {
+            let key = hybrid_result_key(
+                &result.meeting_id,
+                &result.chunk_type,
+                result.start_ms,
+                result.end_ms,
+                result.chunk_index,
+                &result.text,
+            );
+            let rrf_score = 1.0 / (RRF_K + rank as f32 + 1.0);
+            result_map
+                .entry(key)
+                .or_insert_with(|| HybridResult {
+                    result: result.clone(),
+                    rrf_score: 0.0,
+                })
+                .rrf_score += rrf_score;
+        }
+
+        for (rank, fts_hit) in fts_results.iter().enumerate() {
+            let key = hybrid_result_key(
+                &fts_hit.meeting_id,
+                "fts",
+                Some(fts_hit.start_ms),
+                Some(fts_hit.end_ms),
+                Some(fts_hit.segment_id),
+                &fts_hit.text,
+            );
+            let rrf_score = 1.0 / (RRF_K + rank as f32 + 1.0);
+            result_map
+                .entry(key)
+                .and_modify(|entry| entry.rrf_score += rrf_score)
+                .or_insert_with(|| HybridResult {
+                    result: SemanticSearchResult {
+                        id: fts_hit.segment_id.to_string(),
+                        meeting_id: fts_hit.meeting_id.clone(),
+                        meeting_title: fts_hit.meeting_title.clone(),
+                        chunk_type: "fts".to_string(),
+                        text: fts_hit.text.clone(),
+                        start_ms: Some(fts_hit.start_ms),
+                        end_ms: Some(fts_hit.end_ms),
+                        chunk_index: Some(fts_hit.segment_id),
+                        similarity: 0.0,
+                    },
+                    rrf_score,
+                });
+        }
+
+        let mut merged: Vec<HybridResult> = result_map.into_values().collect();
+        merged.sort_by(|a, b| b.rrf_score.total_cmp(&a.rrf_score));
+        merged
+            .into_iter()
+            .take(limit)
+            .map(|entry| entry.result)
+            .collect()
+    }
 
     #[test]
     fn hybrid_result_key_is_scoped_by_meeting() {
@@ -951,5 +1167,85 @@ mod tests {
             "same text",
         );
         assert_ne!(key_a, key_b);
+    }
+
+    #[test]
+    fn rag_regression_prefers_expected_source_for_budget_question() {
+        let vector_hits = vec![
+            SemanticSearchResult {
+                id: "vec-1".to_string(),
+                meeting_id: "finance-sync".to_string(),
+                meeting_title: "Finance Sync".to_string(),
+                chunk_type: "transcript".to_string(),
+                text: "We approved Q3 hiring budget at 20% increase.".to_string(),
+                start_ms: Some(126_000),
+                end_ms: Some(142_000),
+                chunk_index: Some(8),
+                similarity: 0.86,
+            },
+            SemanticSearchResult {
+                id: "vec-2".to_string(),
+                meeting_id: "eng-standup".to_string(),
+                meeting_title: "Engineering Standup".to_string(),
+                chunk_type: "transcript".to_string(),
+                text: "No budget discussion today.".to_string(),
+                start_ms: Some(42_000),
+                end_ms: Some(48_000),
+                chunk_index: Some(2),
+                similarity: 0.74,
+            },
+        ];
+        let fts_hits = vec![FtsStub {
+            meeting_id: "finance-sync".to_string(),
+            meeting_title: "Finance Sync".to_string(),
+            segment_id: 501,
+            start_ms: 126_000,
+            end_ms: 142_000,
+            text: "approved Q3 hiring budget".to_string(),
+        }];
+
+        let fused = fuse_for_test(&vector_hits, &fts_hits, 5);
+        assert_eq!(fused[0].meeting_id, "finance-sync");
+        assert_eq!(fused[0].start_ms, Some(126_000));
+    }
+
+    #[test]
+    fn rag_regression_prefers_expected_source_for_launch_date_question() {
+        let vector_hits = vec![
+            SemanticSearchResult {
+                id: "vec-a".to_string(),
+                meeting_id: "product-review".to_string(),
+                meeting_title: "Product Review".to_string(),
+                chunk_type: "transcript".to_string(),
+                text: "Launch date moved to October 14.".to_string(),
+                start_ms: Some(310_000),
+                end_ms: Some(324_000),
+                chunk_index: Some(17),
+                similarity: 0.79,
+            },
+            SemanticSearchResult {
+                id: "vec-b".to_string(),
+                meeting_id: "marketing".to_string(),
+                meeting_title: "Marketing Planning".to_string(),
+                chunk_type: "transcript".to_string(),
+                text: "Campaign kickoff is planned for next month.".to_string(),
+                start_ms: Some(210_000),
+                end_ms: Some(228_000),
+                chunk_index: Some(12),
+                similarity: 0.75,
+            },
+        ];
+        let fts_hits = vec![FtsStub {
+            meeting_id: "product-review".to_string(),
+            meeting_title: "Product Review".to_string(),
+            segment_id: 882,
+            start_ms: 310_000,
+            end_ms: 324_000,
+            text: "Launch date moved to October 14".to_string(),
+        }];
+
+        let fused = fuse_for_test(&vector_hits, &fts_hits, 5);
+        assert_eq!(fused[0].meeting_id, "product-review");
+        assert_eq!(fused[0].start_ms, Some(310_000));
     }
 }

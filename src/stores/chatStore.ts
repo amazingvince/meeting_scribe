@@ -18,6 +18,9 @@ const MAX_HISTORY_MESSAGES = 6;
 const MAX_RETRIEVAL_CONTEXT_CHUNKS = 10;
 const MEETING_SCOPED_RETRIEVAL_LIMIT = 6;
 const GLOBAL_RETRIEVAL_LIMIT = 12;
+const MAX_ADJACENT_ANCHORS = 6;
+const ADJACENT_CHUNK_RADIUS = 1;
+const ADJACENT_PER_ANCHOR_LIMIT = 5;
 
 /** Convert chat messages to history format for LLM */
 function getHistoryForLlm(messages: ChatMessage[]): ChatHistoryMessage[] {
@@ -102,6 +105,47 @@ function toRetrievedContextChunks(
   }));
 }
 
+async function expandWithAdjacentContext(
+  baseResults: SemanticSearchResult[]
+): Promise<SemanticSearchResult[]> {
+  const transcriptAnchors = baseResults
+    .filter(
+      (hit) =>
+        hit.chunk_type === 'transcript' &&
+        hit.chunk_index !== null &&
+        hit.chunk_index >= 0
+    )
+    .slice(0, MAX_ADJACENT_ANCHORS);
+
+  if (transcriptAnchors.length === 0) {
+    return baseResults;
+  }
+
+  const adjacentLists = await Promise.all(
+    transcriptAnchors.map(async (anchor) => {
+      try {
+        const neighbors = await api.adjacentTranscriptChunks(
+          anchor.meeting_id,
+          anchor.chunk_index as number,
+          ADJACENT_CHUNK_RADIUS,
+          ADJACENT_PER_ANCHOR_LIMIT
+        );
+
+        const neighborSimilarity = Math.max(0.15, anchor.similarity * 0.92);
+        return neighbors.map((neighbor) => ({
+          ...neighbor,
+          similarity: Math.max(neighbor.similarity, neighborSimilarity),
+        }));
+      } catch {
+        // Adjacent expansion is best-effort; failures should not block answering.
+        return [];
+      }
+    })
+  );
+
+  return rankAndDedupeResults([baseResults, ...adjacentLists]);
+}
+
 async function searchInMeetings(
   query: string,
   meetingIds: string[],
@@ -122,6 +166,22 @@ async function searchAcrossMeetings(
 ): Promise<SemanticSearchResult[]> {
   const results = await api.hybridSearch(query, limit);
   return rankAndDedupeResults([results]);
+}
+
+async function retrieveRelevantChunks(
+  query: string,
+  selectedMeetingIds: string[]
+): Promise<SemanticSearchResult[]> {
+  const initialResults =
+    selectedMeetingIds.length > 0
+      ? await searchInMeetings(query, selectedMeetingIds, MEETING_SCOPED_RETRIEVAL_LIMIT)
+      : await searchAcrossMeetings(query, GLOBAL_RETRIEVAL_LIMIT);
+
+  if (initialResults.length === 0) {
+    return [];
+  }
+
+  return expandWithAdjacentContext(initialResults);
 }
 
 interface ChatStore {
@@ -196,19 +256,9 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       // Retrieve relevant chunks first, then answer strictly from those chunks.
-      let sources: ChatSource[] = [];
       let answer: string;
-      let retrieved: SemanticSearchResult[] = [];
-
-      if (selectedMeetingIds.length > 0) {
-        retrieved = await searchInMeetings(
-          content,
-          selectedMeetingIds,
-          MEETING_SCOPED_RETRIEVAL_LIMIT
-        );
-      } else {
-        retrieved = await searchAcrossMeetings(content, GLOBAL_RETRIEVAL_LIMIT);
-      }
+      let sources: ChatSource[] = [];
+      const retrieved = await retrieveRelevantChunks(content, selectedMeetingIds);
 
       if (retrieved.length > 0) {
         const topChunks = retrieved.slice(0, MAX_RETRIEVAL_CONTEXT_CHUNKS);
@@ -332,37 +382,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         });
       });
 
-      // Determine which meeting to query
-      let meetingId: string | null = null;
-      if (selectedMeetingIds.length > 0) {
-        const selectedSearchResults = await searchInMeetings(
-          content,
-          selectedMeetingIds,
-          2
-        );
-        meetingId = selectedSearchResults[0]?.meeting_id ?? selectedMeetingIds[0];
-      } else {
-        // Search for relevant meeting
-        const searchResults = await api.semanticSearch(content, 1);
-        if (searchResults.length > 0) {
-          meetingId = searchResults[0].meeting_id;
-        }
-      }
-
-      if (!meetingId) {
+      const retrieved = await retrieveRelevantChunks(content, selectedMeetingIds);
+      if (retrieved.length === 0) {
         set((state) => {
           const msgs = [...state.messages];
           const lastIdx = msgs.length - 1;
           if (lastIdx >= 0 && msgs[lastIdx].role === 'assistant') {
             msgs[lastIdx] = {
               ...msgs[lastIdx],
-              content: 'No meetings found to search.',
+              content:
+                "I couldn't find any relevant information in your meetings. Try asking about a specific topic that was discussed.",
               isStreaming: false,
             };
           }
           return {
             messages: msgs,
-            error: 'No meetings found to search',
             isLoading: false,
             isStreaming: false,
           };
@@ -370,6 +404,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         stopListening();
         return;
       }
+
+      const topChunks = retrieved.slice(0, MAX_RETRIEVAL_CONTEXT_CHUNKS);
+      const sources = mapSearchResultsToSources(topChunks);
+
+      set((state) => {
+        const msgs = [...state.messages];
+        const lastIdx = msgs.length - 1;
+        if (lastIdx >= 0 && msgs[lastIdx].role === 'assistant') {
+          msgs[lastIdx] = {
+            ...msgs[lastIdx],
+            sources,
+          };
+        }
+        return { messages: msgs };
+      });
 
       const llmReady = await modelManager.ensureLlmReady();
       if (!llmReady) {
@@ -379,7 +428,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       }
 
       // Start streaming (final completion handled by the `done` event)
-      await api.streamMeetingQuestion(streamId, meetingId, content, history);
+      await api.streamAnswerWithRetrieval(
+        streamId,
+        content,
+        toRetrievedContextChunks(topChunks),
+        history
+      );
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       stopListening();
@@ -435,7 +489,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         MAX_RETRIEVAL_CONTEXT_CHUNKS,
         meetingId
       );
-      const topChunks = rankAndDedupeResults([retrieved]).slice(
+      const expanded = await expandWithAdjacentContext(
+        rankAndDedupeResults([retrieved])
+      );
+      const topChunks = expanded.slice(
         0,
         MAX_RETRIEVAL_CONTEXT_CHUNKS
       );
