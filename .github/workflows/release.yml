@@ -79,13 +79,21 @@ jobs:
           mkdir -p "$resource_dir"
           find "$resource_dir" -mindepth 1 -delete
 
-          cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+          case "${{ matrix.target }}" in
+            x86_64-unknown-linux-gnu)
+              url="https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz"
+              lib_glob='libonnxruntime*.so*'
+              ;;
+            aarch64-apple-darwin)
+              url="https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-arm64-1.22.0.tgz"
+              lib_glob='libonnxruntime*.dylib'
+              ;;
+            *)
+              echo "Unsupported target for ONNX runtime staging: ${{ matrix.target }}"
+              exit 1
+              ;;
+          esac
 
-          dist_file="$(ls "$HOME/.cargo/registry/src/"*/ort-sys-2.0.0-rc.10/dist.txt | head -n 1)"
-          line="$(awk -F '\t' -v target='${{ matrix.target }}' '$1 == "none" && $2 == target { print; exit }' "$dist_file")"
-          test -n "$line"
-
-          url="$(printf '%s' "$line" | cut -f3)"
           archive="$(mktemp /tmp/onnxruntime.XXXXXX.tgz)"
           extract_dir="$(mktemp -d /tmp/onnxruntime.XXXXXX)"
 
@@ -94,7 +102,7 @@ jobs:
 
           while IFS= read -r lib; do
             cp "$lib" "$resource_dir/"
-          done < <(find "$extract_dir" -type f \( -name 'libonnxruntime*.so*' -o -name 'libonnxruntime*.dylib' \))
+          done < <(find "$extract_dir" -type f -name "$lib_glob")
 
           test -n "$(find "$resource_dir" -type f | head -n 1)"
           ls -la "$resource_dir"
@@ -109,29 +117,17 @@ jobs:
           New-Item -ItemType Directory -Force -Path $resourceDir | Out-Null
           Get-ChildItem -Path $resourceDir -File -Force -ErrorAction SilentlyContinue | Remove-Item -Force
 
-          cargo fetch --manifest-path src-tauri/Cargo.toml --locked
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-x64-1.22.0.zip"
 
-          $distFile = Get-ChildItem "$env:USERPROFILE\.cargo\registry\src\*\ort-sys-2.0.0-rc.10\dist.txt" | Select-Object -First 1
-          if (-not $distFile) { throw "Unable to find ort-sys dist.txt" }
-
-          $line = Get-Content $distFile.FullName | Where-Object { $_ -and -not $_.StartsWith("#") } | Where-Object {
-            $parts = $_ -split "`t"
-            $parts.Length -ge 4 -and $parts[0] -eq "none" -and $parts[1] -eq "${{ matrix.target }}"
-          } | Select-Object -First 1
-          if (-not $line) { throw "No ort-sys distribution entry for target ${{ matrix.target }}" }
-
-          $parts = $line -split "`t"
-          $url = $parts[2]
-
-          $archive = Join-Path $env:RUNNER_TEMP "onnxruntime-${{ matrix.target }}.tgz"
+          $archive = Join-Path $env:RUNNER_TEMP "onnxruntime-${{ matrix.target }}.zip"
           $extractDir = Join-Path $env:RUNNER_TEMP "onnxruntime-${{ matrix.target }}"
           if (Test-Path $extractDir) { Remove-Item -Recurse -Force $extractDir }
           New-Item -ItemType Directory -Path $extractDir | Out-Null
 
           Invoke-WebRequest -Uri $url -OutFile $archive
-          tar -xzf $archive -C $extractDir
+          Expand-Archive -Path $archive -DestinationPath $extractDir -Force
 
-          $dlls = Get-ChildItem -Recurse -Path $extractDir -Filter "*.dll"
+          $dlls = Get-ChildItem -Recurse -Path $extractDir -Filter "*.dll" | Where-Object { $_.Name -like "onnxruntime*.dll" }
           if (-not $dlls) { throw "No ONNX Runtime DLLs found in extracted archive" }
           foreach ($dll in $dlls) {
             Copy-Item $dll.FullName -Destination $resourceDir -Force
