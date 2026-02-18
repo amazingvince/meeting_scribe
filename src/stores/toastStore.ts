@@ -34,8 +34,11 @@ function generateId(): string {
 }
 
 const DEFAULT_DURATION = 5000;
-const TOAST_DEDUPE_WINDOW_MS = 900;
+const MAX_ACTIVE_TOASTS = 4;
+const TOAST_EXACT_DEDUPE_WINDOW_MS = 1200;
+const TOAST_TITLE_DEDUPE_WINDOW_MS = 3500;
 const recentToastFingerprints = new Map<string, number>();
+const recentToastTitles = new Map<string, number>();
 
 function toastFingerprint(toast: Pick<Toast, 'type' | 'title' | 'message'>): string {
   const title = toast.title.trim().toLowerCase();
@@ -43,10 +46,20 @@ function toastFingerprint(toast: Pick<Toast, 'type' | 'title' | 'message'>): str
   return `${toast.type}|${title}|${message}`;
 }
 
+function toastTitleKey(toast: Pick<Toast, 'type' | 'title'>): string {
+  return `${toast.type}|${toast.title.trim().toLowerCase()}`;
+}
+
 function pruneFingerprintCache(now: number): void {
   for (const [key, timestamp] of recentToastFingerprints.entries()) {
-    if (now - timestamp > TOAST_DEDUPE_WINDOW_MS * 8) {
+    if (now - timestamp > TOAST_EXACT_DEDUPE_WINDOW_MS * 8) {
       recentToastFingerprints.delete(key);
+    }
+  }
+
+  for (const [key, timestamp] of recentToastTitles.entries()) {
+    if (now - timestamp > TOAST_TITLE_DEDUPE_WINDOW_MS * 8) {
+      recentToastTitles.delete(key);
     }
   }
 }
@@ -56,14 +69,34 @@ export const useToastStore = create<ToastStore>((set, get) => ({
 
   addToast: (toast) => {
     const fingerprint = toastFingerprint(toast);
+    const titleKey = toastTitleKey(toast);
     const now = Date.now();
-    const lastSeen = recentToastFingerprints.get(fingerprint);
-    if (lastSeen !== undefined && now - lastSeen < TOAST_DEDUPE_WINDOW_MS) {
+    const lastExactSeen = recentToastFingerprints.get(fingerprint);
+    if (
+      lastExactSeen !== undefined &&
+      now - lastExactSeen < TOAST_EXACT_DEDUPE_WINDOW_MS
+    ) {
       const existing = get().toasts.find(
         (candidate) => toastFingerprint(candidate) === fingerprint
       );
       if (existing) {
         return existing.id;
+      }
+    }
+
+    // Coalesce non-error toasts by title to prevent stacked status spam.
+    if (toast.type !== 'error') {
+      const lastTitleSeen = recentToastTitles.get(titleKey);
+      if (
+        lastTitleSeen !== undefined &&
+        now - lastTitleSeen < TOAST_TITLE_DEDUPE_WINDOW_MS
+      ) {
+        const existingByTitle = get().toasts.find(
+          (candidate) => toastTitleKey(candidate) === titleKey
+        );
+        if (existingByTitle) {
+          return existingByTitle.id;
+        }
       }
     }
 
@@ -75,18 +108,12 @@ export const useToastStore = create<ToastStore>((set, get) => ({
       ...toast,
     };
     recentToastFingerprints.set(fingerprint, now);
+    recentToastTitles.set(titleKey, now);
     pruneFingerprintCache(now);
 
     set((state) => ({
-      toasts: [...state.toasts, newToast],
+      toasts: [...state.toasts, newToast].slice(-MAX_ACTIVE_TOASTS),
     }));
-
-    // Auto-remove after duration
-    if (newToast.duration && newToast.duration > 0) {
-      setTimeout(() => {
-        get().removeToast(id);
-      }, newToast.duration);
-    }
 
     return id;
   },

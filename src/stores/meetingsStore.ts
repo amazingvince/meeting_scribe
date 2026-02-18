@@ -11,10 +11,12 @@ import type {
   TranscriptSegment,
 } from '../types';
 import * as api from '../lib/tauri';
+import { modelManager } from '../lib/modelManager';
 
 const DEFAULT_LIST_LIMIT = 100;
-const HYBRID_SEARCH_LIMIT = 240;
-const HYBRID_SEARCH_CANDIDATE_LIMIT = 600;
+const HYBRID_SEARCH_LIMIT = 120;
+const HYBRID_SEARCH_CANDIDATE_LIMIT = 300;
+const MIN_HYBRID_QUERY_CHARS = 2;
 
 function compactSnippet(text: string, maxChars = 220): string {
   const compact = text.replace(/\s+/g, ' ').trim();
@@ -112,7 +114,39 @@ export const useMeetingsStore = create<MeetingsStore>((set, get) => ({
           status: statusFilter ?? undefined,
           limit: DEFAULT_LIST_LIMIT,
         });
+      } else if (trimmedQuery.length < MIN_HYBRID_QUERY_CHARS) {
+        const candidateMeetings = await api.listMeetings({
+          status: statusFilter ?? undefined,
+          limit: DEFAULT_LIST_LIMIT,
+        });
+        const normalizedQuery = trimmedQuery.toLowerCase();
+        const ranked = candidateMeetings
+          .filter((meeting) => meeting.title.toLowerCase().includes(normalizedQuery))
+          .map((meeting) => ({
+            meeting,
+            score: titleMatchBoost(trimmedQuery, meeting.title),
+            match: {
+              snippet: compactSnippet(meeting.title),
+              startMs: null,
+              source: 'title' as const,
+            },
+          }))
+          .sort(
+            (a, b) => b.score - a.score || b.meeting.created_at - a.meeting.created_at
+          );
+
+        meetings = ranked.map((entry) => entry.meeting);
+        searchMatches = Object.fromEntries(
+          ranked.map((entry) => [entry.meeting.id, entry.match])
+        );
       } else {
+        const embeddingReady = await modelManager.ensureEmbeddingReady();
+        if (!embeddingReady) {
+          throw new Error(
+            'Embedding model is not ready. Download and load it in Settings to use hybrid search.'
+          );
+        }
+
         const [candidateMeetings, hybridResults] = await Promise.all([
           api.listMeetings({
             status: statusFilter ?? undefined,

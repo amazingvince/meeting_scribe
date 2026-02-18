@@ -106,6 +106,37 @@ pub struct LlmService {
     gpu_layers: u32,
 }
 
+const DEFAULT_GPU_LAYERS: u32 = 99;
+
+fn configured_gpu_layers() -> u32 {
+    match std::env::var("MEETING_SCRIBE_LLM_GPU_LAYERS") {
+        Ok(raw) => match raw.trim().parse::<u32>() {
+            Ok(parsed) => parsed,
+            Err(_) => {
+                warn!(
+                    "Invalid MEETING_SCRIBE_LLM_GPU_LAYERS='{}'; using default {}",
+                    raw, DEFAULT_GPU_LAYERS
+                );
+                DEFAULT_GPU_LAYERS
+            }
+        },
+        Err(_) => DEFAULT_GPU_LAYERS,
+    }
+}
+
+fn gpu_layer_candidates(requested: u32) -> Vec<u32> {
+    let mut candidates = vec![requested];
+    if requested > 0 {
+        let half = (requested / 2).max(1);
+        for fallback in [half, 64, 48, 32, 24, 16, 8, 0] {
+            if !candidates.contains(&fallback) {
+                candidates.push(fallback);
+            }
+        }
+    }
+    candidates
+}
+
 impl LlmService {
     /// Create a new LLM service
     pub fn new(models_dir: PathBuf) -> Result<Self> {
@@ -117,7 +148,7 @@ impl LlmService {
             model: None,
             model_path: models_dir.join("llm"),
             current_model: None,
-            gpu_layers: 99, // Offload all layers to GPU by default
+            gpu_layers: configured_gpu_layers(),
         })
     }
 
@@ -154,18 +185,44 @@ impl LlmService {
 
         info!("Loading LLM model: {} from {:?}", model, model_file);
 
-        // Configure model parameters with GPU offloading
-        let model_params = LlamaModelParams::default().with_n_gpu_layers(self.gpu_layers);
+        let mut loaded_model: Option<LlamaModel> = None;
+        let mut attempt_errors = Vec::new();
+        let mut selected_gpu_layers = 0;
 
-        // Load the model
-        let loaded_model = LlamaModel::load_from_file(&self.backend, &model_file, &model_params)
-            .map_err(|e| anyhow!("Failed to load model {:?}: {:?}", model_file, e))?;
+        for layers in gpu_layer_candidates(self.gpu_layers) {
+            let model_params = LlamaModelParams::default().with_n_gpu_layers(layers);
+            match LlamaModel::load_from_file(&self.backend, &model_file, &model_params) {
+                Ok(candidate) => {
+                    selected_gpu_layers = layers;
+                    loaded_model = Some(candidate);
+                    if layers != self.gpu_layers {
+                        warn!(
+                            "Loaded {} with reduced GPU layers (requested {}, using {})",
+                            model, self.gpu_layers, layers
+                        );
+                    }
+                    break;
+                }
+                Err(error) => {
+                    attempt_errors.push(format!("{} layers: {:?}", layers, error));
+                }
+            }
+        }
+
+        let loaded_model = loaded_model.ok_or_else(|| {
+            anyhow!(
+                "Failed to load model {:?}. Attempts: {}",
+                model_file,
+                attempt_errors.join("; ")
+            )
+        })?;
 
         info!(
-            "LLM model loaded: {} (vocab: {}, params: {})",
+            "LLM model loaded: {} (vocab: {}, params: {}, gpu_layers: {})",
             model,
             loaded_model.n_vocab(),
-            loaded_model.n_params()
+            loaded_model.n_params(),
+            selected_gpu_layers
         );
 
         self.model = Some(loaded_model);

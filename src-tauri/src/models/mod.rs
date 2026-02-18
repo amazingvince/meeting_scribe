@@ -108,7 +108,18 @@ impl ModelManager {
 
     /// Check if a transcription model is ready
     pub fn is_model_ready(&self, backend: TranscriptionBackend) -> bool {
-        self.get_backend_status(backend) == ModelStatus::Ready
+        if self.get_backend_status(backend) == ModelStatus::Ready {
+            return true;
+        }
+
+        // If status cache is stale but files are present, self-heal the cache.
+        if self.downloader.is_model_downloaded(backend) {
+            let model_id = backend.model_info().id;
+            self.set_status(&model_id, ModelStatus::Ready);
+            return true;
+        }
+
+        false
     }
 
     /// Get all model statuses

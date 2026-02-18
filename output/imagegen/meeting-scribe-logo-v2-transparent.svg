@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Meeting Scribe logo v2 transparent">
+  <defs>
+    <linearGradient id="bubble" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0EA5E9"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="nib" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22D3EE"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="176" y="232" width="672" height="474" rx="96" fill="url(#bubble)"/>
+  <path d="M390 706 L510 706 L390 810 Z" fill="url(#bubble)"/>
+
+  <rect x="286" y="406" width="56" height="126" rx="24" fill="#DBEAFE"/>
+  <rect x="382" y="358" width="56" height="222" rx="24" fill="#DBEAFE"/>
+  <rect x="478" y="390" width="56" height="160" rx="24" fill="#DBEAFE"/>
+  <rect x="574" y="344" width="56" height="252" rx="24" fill="#DBEAFE"/>
+  <rect x="670" y="418" width="56" height="114" rx="24" fill="#DBEAFE"/>
+
+  <path fill="url(#nib)" d="M616 318 L794 496 L666 624 L488 446 Z"/>
+  <path fill="#0891B2" d="M754 456 L794 496 L666 624 L626 584 Z"/>
+  <circle cx="646" cy="504" r="18" fill="#E0F2FE"/>
+</svg>

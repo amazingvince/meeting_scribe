@@ -33,7 +33,9 @@ export function EmptyState({
       `}
     >
       {icon && (
-        <div className="mb-4 text-muted-foreground">{icon}</div>
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+          {icon}
+        </div>
       )}
       <h3 className="text-lg font-medium text-foreground mb-1">
         {title}

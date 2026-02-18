@@ -58,7 +58,6 @@ pub struct ProcessMeetingOptions {
 
 /// Event emitted when background meeting processing finishes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct MeetingProcessingFinishedEvent {
     pub meeting_id: String,
     pub success: bool,
@@ -184,12 +183,16 @@ pub fn init_transcription(
 ) -> Result<(), String> {
     let manager = model_manager.lock();
 
-    // Check if model is ready
-    if !manager.is_model_ready(backend) {
+    // Verify on-disk model files first (status cache may be stale after prior failures).
+    if !manager.is_model_downloaded(backend) {
         return Err(format!(
             "Model {} is not downloaded. Please download it first.",
             backend.model_info().name
         ));
+    }
+    if !manager.is_model_ready(backend) {
+        let model_id = backend.model_info().id;
+        manager.set_status(&model_id, ModelStatus::Ready);
     }
 
     let config = TranscriptionConfig {
@@ -275,8 +278,9 @@ pub async fn process_meeting(
     let transcription = transcription.inner().clone();
     let storage = storage.inner().clone();
     let app_handle = app.clone();
+    let meeting_id_for_event = meeting_id.clone();
 
-    tokio::task::spawn_blocking(move || {
+    let result = tokio::task::spawn_blocking(move || {
         process_meeting_blocking(
             &app_handle,
             &transcription,
@@ -287,8 +291,68 @@ pub async fn process_meeting(
             options,
         )
     })
-    .await
-    .map_err(|e| format!("Meeting processing task failed: {}", e))?
+    .await;
+
+    match result {
+        Ok(Ok(processed)) => {
+            emit_processing_finished(
+                &app,
+                MeetingProcessingFinishedEvent {
+                    meeting_id: meeting_id_for_event,
+                    success: true,
+                    segment_count: Some(processed.transcript.len()),
+                    processing_time_ms: Some(processed.processing_time_ms),
+                    error_message: None,
+                },
+            );
+            Ok(processed)
+        }
+        Ok(Err(err_msg)) => {
+            let _ = app.emit(
+                "meeting-processing-progress",
+                serde_json::json!({
+                    "meeting_id": meeting_id_for_event,
+                    "stage": "Failed",
+                    "percent": 100.0,
+                    "message": err_msg.clone(),
+                }),
+            );
+            emit_processing_finished(
+                &app,
+                MeetingProcessingFinishedEvent {
+                    meeting_id: meeting_id_for_event,
+                    success: false,
+                    segment_count: None,
+                    processing_time_ms: None,
+                    error_message: Some(err_msg.clone()),
+                },
+            );
+            Err(err_msg)
+        }
+        Err(join_err) => {
+            let err_msg = format!("Meeting processing task failed: {}", join_err);
+            let _ = app.emit(
+                "meeting-processing-progress",
+                serde_json::json!({
+                    "meeting_id": meeting_id_for_event,
+                    "stage": "Failed",
+                    "percent": 100.0,
+                    "message": err_msg.clone(),
+                }),
+            );
+            emit_processing_finished(
+                &app,
+                MeetingProcessingFinishedEvent {
+                    meeting_id: meeting_id_for_event,
+                    success: false,
+                    segment_count: None,
+                    processing_time_ms: None,
+                    error_message: Some(err_msg.clone()),
+                },
+            );
+            Err(err_msg)
+        }
+    }
 }
 
 fn process_meeting_blocking(
@@ -726,8 +790,12 @@ pub async fn start_meeting_processing(
 
         match processing_outcome {
             Ok(Ok(result)) => {
-                if let Err(e) = update_meeting_status(&storage, &meeting_id_for_task, MeetingStatus::Ready, None)
-                {
+                if let Err(e) = update_meeting_status(
+                    &storage,
+                    &meeting_id_for_task,
+                    MeetingStatus::Ready,
+                    None,
+                ) {
                     warn!(
                         "Failed to update meeting {} status to ready after processing: {}",
                         meeting_id_for_task, e
@@ -887,7 +955,10 @@ pub async fn get_live_transcription_preview(
                 .map_err(|e| e.to_string())?
         };
 
-        Ok::<(Vec<TranscriptSegment>, Vec<TranscriptSegment>), String>((mic_segments, system_segments))
+        Ok::<(Vec<TranscriptSegment>, Vec<TranscriptSegment>), String>((
+            mic_segments,
+            system_segments,
+        ))
     })
     .await
     .map_err(|e| format!("Live preview task failed: {}", e))??;
@@ -1096,6 +1167,7 @@ mod tests {
     use super::{
         apply_segment_offset, derive_cleaned_mic_path, resolve_existing_clean_mic_path,
         resolve_mic_processing_input_path, resolve_mic_processing_path,
+        MeetingProcessingFinishedEvent,
     };
     use crate::inference::Speaker;
     use crate::inference::TranscriptSegment;
@@ -1216,5 +1288,24 @@ mod tests {
 
         let resolved = resolve_mic_processing_path(&raw_path);
         assert_eq!(resolved, clean_path);
+    }
+
+    #[test]
+    fn meeting_processing_finished_event_serializes_snake_case_fields() {
+        let payload = MeetingProcessingFinishedEvent {
+            meeting_id: "meeting-1".to_string(),
+            success: false,
+            segment_count: None,
+            processing_time_ms: None,
+            error_message: Some("failed".to_string()),
+        };
+
+        let value = serde_json::to_value(payload).expect("serialize payload");
+        let obj = value.as_object().expect("json object");
+
+        assert!(obj.contains_key("meeting_id"));
+        assert!(obj.contains_key("error_message"));
+        assert!(!obj.contains_key("meetingId"));
+        assert!(!obj.contains_key("errorMessage"));
     }
 }

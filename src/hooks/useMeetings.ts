@@ -6,6 +6,8 @@
 import { useCallback, useEffect } from 'react';
 import { useMeetingsStore } from '../stores';
 import type { Meeting, MeetingStatus } from '../types';
+import type { MeetingProcessingFinishedEvent } from '../types';
+import { useTauriEvent } from './useTauriEvent';
 
 interface UseMeetingsOptions {
   autoFetch?: boolean;
@@ -78,6 +80,20 @@ export function useMeetings(options: UseMeetingsOptions = {}) {
 export function useMeeting(meetingId: string | null) {
   const store = useMeetingsStore();
   const { fetchMeeting, selectMeeting, fetchTranscript } = store;
+
+  useTauriEvent<MeetingProcessingFinishedEvent>(
+    'meeting-processing-finished',
+    (event) => {
+      if (!meetingId || event.meeting_id !== meetingId) {
+        return;
+      }
+
+      void fetchMeeting(meetingId);
+      if (event.success) {
+        void fetchTranscript(meetingId);
+      }
+    }
+  );
 
   useEffect(() => {
     let cancelled = false;

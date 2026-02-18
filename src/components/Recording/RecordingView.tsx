@@ -5,7 +5,9 @@ import { FileText, NotebookPen } from "lucide-react";
 import { Waveform } from "./Waveform";
 import { formatDuration } from "../../utils/format";
 import * as api from "../../lib/tauri";
+import { modelManager } from "../../lib/modelManager";
 import { useSettingsStore, useToastStore } from "../../stores";
+import { processingStageLabel } from "../../utils/stages";
 import { Button } from "../ui/Button";
 import type {
   LiveTranscriptSegment,
@@ -297,20 +299,6 @@ function mergeLivePreviewIncremental(
   );
 }
 
-function getStageLabel(stage: string): string {
-  switch (stage) {
-    case "TranscribingMic":
-      return "Transcribing microphone audio";
-    case "TranscribingSystem":
-      return "Transcribing system audio";
-    case "Merging":
-      return "Merging transcript channels";
-    case "Complete":
-      return "Transcript ready";
-    default:
-      return "Processing transcript";
-  }
-}
 
 function notesDraftKey(meetingId: string): string {
   return `meeting-scribe-live-notes:${meetingId}`;
@@ -343,6 +331,7 @@ export function RecordingView() {
     LiveTranscriptSegment[]
   >([]);
   const [livePreviewError, setLivePreviewError] = useState<string | null>(null);
+  const [isEnablingLivePreview, setIsEnablingLivePreview] = useState(false);
   const [liveNotes, setLiveNotes] = useState("");
 
   const livePreviewInFlightRef = useRef(false);
@@ -452,11 +441,7 @@ export function RecordingView() {
           );
 
           if (payload.success) {
-            const segmentCount = payload.segment_count ?? 0;
-            toast.success(
-              "Transcript complete",
-              `Meeting processed (${segmentCount} segments).`
-            );
+            // Completion is surfaced by the background-task pill; avoid extra success toasts.
           } else {
             toast.error(
               "Transcript failed",
@@ -628,13 +613,16 @@ export function RecordingView() {
       } else {
         let transcriptionReady = settings.transcriptionReady;
         if (!transcriptionReady) {
-          toast.info("Loading transcription model...");
-          transcriptionReady = await settings.initializeTranscription();
+          transcriptionReady = await modelManager.ensureTranscriptionReady();
         }
 
         if (!transcriptionReady) {
+          const status = useSettingsStore.getState();
           const modelError =
-            "Transcription model unavailable. Download and load a model to process this recording.";
+            status.error ??
+            (status.transcriptionDownloaded
+              ? "Transcription model unavailable. Open Settings and load the model, then try again."
+              : "Transcription model unavailable. Download the model in Settings to process recordings.");
           await api.updateMeetingStatus(result.meeting_id, "error", modelError);
           toast.warning("Transcription not available", modelError);
         } else {
@@ -675,19 +663,47 @@ export function RecordingView() {
   }, [settings, toast, liveNotes]);
 
   const handleEnableLivePreview = useCallback(async () => {
-    settings.setLiveTranscriptionEnabled(true);
-    if (!settings.transcriptionReady) {
-      toast.info("Loading transcription model...");
-      const ready = await settings.initializeTranscription();
+    if (settings.liveTranscriptionEnabled) {
+      settings.setLiveTranscriptionEnabled(false);
+      setLivePreviewError(null);
+      setLivePreviewSegments([]);
+      committedLiveSegmentsRef.current.clear();
+      return;
+    }
+
+    setIsEnablingLivePreview(true);
+    try {
+      let ready = settings.transcriptionReady;
       if (!ready) {
-        toast.warning(
-          "Transcription model unavailable",
-          "Download a model in Settings to enable live transcript preview."
-        );
+        ready = await modelManager.ensureTranscriptionReady();
       }
+
+      if (!ready) {
+        const status = useSettingsStore.getState();
+        const detail =
+          status.error ??
+          (status.transcriptionDownloaded
+            ? "Unable to load the transcription model. Try again in Settings."
+            : "Download the transcription model in Settings to enable live transcript preview.");
+
+        toast.warning(
+          status.transcriptionDownloaded
+            ? "Transcription model unavailable"
+            : "Transcription model not downloaded",
+          detail
+        );
+        return;
+      }
+
+      settings.setLiveTranscriptionEnabled(true);
+      setLivePreviewError(null);
+    } finally {
+      setIsEnablingLivePreview(false);
     }
   }, [settings, toast]);
   const transcriptLines = livePreviewSegments;
+  const livePreviewToggleBusy =
+    isEnablingLivePreview || settings.isLoadingTranscription;
   const {
     micDisplayMetrics,
     systemDisplayMetrics,
@@ -737,16 +753,19 @@ export function RecordingView() {
         </div>
 
         <div className="flex items-center gap-2">
-          {!settings.liveTranscriptionEnabled && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleEnableLivePreview}
-              className="text-muted-foreground"
-            >
-              Enable Live Transcript
-            </Button>
-          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleEnableLivePreview}
+            disabled={livePreviewToggleBusy}
+            className="text-muted-foreground"
+          >
+            {livePreviewToggleBusy
+              ? "Preparing..."
+              : settings.liveTranscriptionEnabled
+                ? "Hide Live Transcript"
+                : "Enable Live Transcript"}
+          </Button>
           {!isRecording ? (
             <Button
               onClick={handleStartRecording}
@@ -794,18 +813,18 @@ export function RecordingView() {
       )}
 
       {backgroundProcessing && !isRecording && (
-        <div className="border-b border-indigo-200 bg-indigo-50/90 px-6 py-2.5 dark:border-indigo-800 dark:bg-indigo-900/20">
-          <div className="flex items-center justify-between text-xs text-indigo-700 dark:text-indigo-300">
-            <span className="font-medium">{getStageLabel(backgroundProcessing.stage)}</span>
+        <div className="border-b border-brand/20 bg-brand/5 px-6 py-2.5">
+          <div className="flex items-center justify-between text-xs text-brand">
+            <span className="font-medium">{processingStageLabel(backgroundProcessing.stage)}</span>
             <span>{Math.round(backgroundProcessing.percent)}%</span>
           </div>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-900/40">
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-brand/10">
             <div
-              className="h-full bg-indigo-500 transition-all duration-300"
+              className="h-full bg-brand transition-all duration-300"
               style={{ width: `${Math.min(100, Math.max(0, backgroundProcessing.percent))}%` }}
             />
           </div>
-          <p className="mt-1.5 text-[11px] text-indigo-600 dark:text-indigo-400">
+          <p className="mt-1.5 text-[11px] text-brand/70">
             {backgroundProcessing.message || "Transcript is processing in the background."}
           </p>
         </div>
@@ -817,7 +836,7 @@ export function RecordingView() {
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-[80px]">
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                micStreaming ? 'bg-emerald-500' : 'bg-muted-foreground/50'
+                micStreaming ? 'bg-success' : 'bg-muted-foreground/50'
               }`}
             />
             Mic {micStreaming ? '' : '(idle)'}
@@ -836,7 +855,7 @@ export function RecordingView() {
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground min-w-[80px]">
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                systemStreaming ? 'bg-emerald-500' : 'bg-muted-foreground/50'
+                systemStreaming ? 'bg-success' : 'bg-muted-foreground/50'
               }`}
             />
             System {systemStreaming ? '' : '(idle)'}
@@ -859,7 +878,7 @@ export function RecordingView() {
           <div className="flex-1 flex flex-col border-r border-border min-w-0">
             <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-card/50">
               <div className="flex items-center gap-2">
-                <FileText className="w-3.5 h-3.5 text-indigo-500" />
+                <FileText className="w-3.5 h-3.5 text-brand" />
                 <span className="text-sm text-muted-foreground">Live Transcript</span>
               </div>
               <span className="text-[11px] text-muted-foreground/60">
@@ -871,7 +890,7 @@ export function RecordingView() {
               {!isRecording ? (
                 <p className="text-sm text-muted-foreground">Start recording to see live transcript here.</p>
               ) : !settings.transcriptionReady ? (
-                <p className="text-sm text-amber-700 dark:text-amber-300">
+                <p className="text-sm text-warning">
                   Load a transcription model to show live transcript updates.
                 </p>
               ) : livePreviewError ? (
@@ -901,7 +920,7 @@ export function RecordingView() {
         <div className={`flex flex-col bg-card/30 ${settings.liveTranscriptionEnabled ? 'w-[420px] min-w-[320px]' : 'flex-1'}`}>
           <div className="flex items-center justify-between px-5 py-3 border-b border-border">
             <div className="flex items-center gap-2">
-              <NotebookPen className="w-3.5 h-3.5 text-emerald-500" />
+              <NotebookPen className="w-3.5 h-3.5 text-success" />
               <span className="text-sm text-muted-foreground">Meeting Notes</span>
             </div>
             <span className="text-[11px] text-muted-foreground/60">
@@ -909,17 +928,25 @@ export function RecordingView() {
             </span>
           </div>
           <div className="flex-1 p-5">
-            <textarea
-              value={liveNotes}
-              onChange={(e) => setLiveNotes(e.target.value)}
-              disabled={!meetingId}
-              placeholder={
-                meetingId
-                  ? "Start typing your notes..."
-                  : "Start recording to begin taking notes."
-              }
-              className="w-full h-full bg-transparent text-sm text-foreground/90 resize-none outline-none leading-relaxed placeholder:text-muted-foreground/40"
-            />
+            <div
+              className={`h-full ${
+                !meetingId
+                  ? 'rounded-lg border border-border bg-input-background/50 opacity-50 p-3'
+                  : ''
+              }`}
+            >
+              <textarea
+                value={liveNotes}
+                onChange={(e) => setLiveNotes(e.target.value)}
+                disabled={!meetingId}
+                placeholder={
+                  meetingId
+                    ? "Start typing your notes..."
+                    : "Hit 'Start Recording' to begin taking notes here..."
+                }
+                className="w-full h-full bg-transparent text-sm text-foreground/90 resize-none outline-none leading-relaxed placeholder:text-muted-foreground/40"
+              />
+            </div>
           </div>
         </div>
       </div>

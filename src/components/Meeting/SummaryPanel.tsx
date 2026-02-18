@@ -5,8 +5,11 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { Sparkles, ListChecks, RefreshCw, Loader2 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { ActionItem } from '../../types';
 import { Button } from '../ui/Button';
+import { Badge } from '../ui/Badge';
 import { Card } from '../ui/Card';
 import { SkeletonText } from '../ui/Skeleton';
 import { useTauriEvent } from '../../hooks';
@@ -100,14 +103,12 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
           const nextSummary = event.summary?.trim() ?? '';
           if (nextSummary.length > 0) {
             setSummary(nextSummary);
-            toast.success('Summary generated');
           } else {
             void (async () => {
               const savedSummary = await api.getSummary(meetingId, 'full');
               if (savedSummary?.content) {
                 setSummary(savedSummary.content);
               }
-              toast.success('Summary generated');
             })();
           }
         } else {
@@ -126,10 +127,8 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
         if (event.success) {
           if (event.action_items && event.action_items.length > 0) {
             setActionItems(event.action_items);
-            toast.success(`Found ${event.action_items.length} action items`);
           } else if (event.action_items) {
             setActionItems([]);
-            toast.success('No action items found');
           } else {
             void (async () => {
               const savedActions = await api.getSummary(meetingId, 'action_items');
@@ -137,14 +136,11 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
                 try {
                   const parsed = JSON.parse(savedActions.content) as ActionItem[];
                   setActionItems(parsed);
-                  toast.success(`Found ${parsed.length} action items`);
                 } catch {
                   setActionItems([]);
-                  toast.success('Action items extracted');
                 }
               } else {
                 setActionItems([]);
-                toast.success('Action items extracted');
               }
             })();
           }
@@ -166,7 +162,6 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
       let llmReady = settings.llmReady;
       if (!llmReady) {
         setSummaryStatus('Loading language model...');
-        toast.info('Loading language model...');
         llmReady = await settings.initializeLlm();
       }
 
@@ -182,7 +177,6 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
 
       setSummaryStatus('Queued for background generation...');
       await api.startSummaryGeneration(meetingId, 'full');
-      toast.info('Summary generation started', 'You can continue using the app while this runs.');
     } catch (e) {
       setIsLoadingSummary(false);
       setSummaryStatus(null);
@@ -201,7 +195,6 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
       let llmReady = settings.llmReady;
       if (!llmReady) {
         setActionsStatus('Loading language model...');
-        toast.info('Loading language model...');
         llmReady = await settings.initializeLlm();
       }
 
@@ -217,10 +210,6 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
 
       setActionsStatus('Queued for background extraction...');
       await api.startSummaryGeneration(meetingId, 'action_items');
-      toast.info(
-        'Action-item extraction started',
-        'You can continue using the app while this runs.'
-      );
     } catch (e) {
       setIsLoadingActions(false);
       setActionsStatus(null);
@@ -274,7 +263,7 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
       <Card>
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-foreground flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-indigo-500" />
+            <Sparkles className="w-5 h-5 text-brand" />
             Summary
           </h3>
           <Button
@@ -304,9 +293,41 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
         {isLoadingSummary ? (
           <SkeletonText lines={4} />
         ) : summary ? (
-          <p className="text-foreground/80 whitespace-pre-wrap">
-            {summary}
-          </p>
+          <div className="text-foreground/80 text-sm leading-relaxed prose-sm">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                h1: ({ children }) => (
+                  <h1 className="text-base font-semibold mt-4 mb-2">{children}</h1>
+                ),
+                h2: ({ children }) => (
+                  <h2 className="text-sm font-semibold mt-3 mb-1.5">{children}</h2>
+                ),
+                h3: ({ children }) => (
+                  <h3 className="text-sm font-semibold mt-2 mb-1">{children}</h3>
+                ),
+                ul: ({ children }) => (
+                  <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul>
+                ),
+                ol: ({ children }) => (
+                  <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol>
+                ),
+                li: ({ children }) => <li>{children}</li>,
+                strong: ({ children }) => (
+                  <strong className="font-semibold">{children}</strong>
+                ),
+                blockquote: ({ children }) => (
+                  <blockquote className="border-l-2 border-brand pl-3 my-2 text-muted-foreground italic">
+                    {children}
+                  </blockquote>
+                ),
+                hr: () => <hr className="my-3 border-border" />,
+              }}
+            >
+              {summary}
+            </ReactMarkdown>
+          </div>
         ) : (
           <p className="text-muted-foreground text-sm">
             Click "Generate" to create an AI summary of this meeting.
@@ -318,7 +339,7 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
       <Card>
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-foreground flex items-center gap-2">
-            <ListChecks className="w-5 h-5 text-green-500" />
+            <ListChecks className="w-5 h-5 text-success" />
             Action Items
           </h3>
           <Button
@@ -351,20 +372,18 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
           <ul className="space-y-3">
             {actionItems.map((item, idx) => (
               <li key={idx} className="flex items-start gap-3">
-                <span
-                  className={`
-                    text-xs font-medium px-2 py-0.5 rounded mt-0.5
-                    ${
-                      item.priority === 'high'
-                        ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                        : item.priority === 'medium'
-                          ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                          : 'bg-muted text-muted-foreground'
-                    }
-                  `}
+                <Badge
+                  variant={
+                    item.priority === 'high'
+                      ? 'error'
+                      : item.priority === 'medium'
+                        ? 'warning'
+                        : 'secondary'
+                  }
+                  className="mt-0.5"
                 >
                   {item.priority}
-                </span>
+                </Badge>
                 <div className="flex-1">
                   <p className="text-foreground/80">{item.task}</p>
                   {(item.owner || item.deadline) && (

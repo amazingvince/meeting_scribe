@@ -8,3 +8,4 @@ export { useMeetings, useMeeting } from './useMeetings';
 export { useChat } from './useChat';
 export { useModels } from './useModels';
 export { useTheme, applyInitialTheme } from './useTheme';
+export { usePostProcessingCoordinator } from './usePostProcessingCoordinator';

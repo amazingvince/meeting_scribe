@@ -250,13 +250,18 @@ impl SearchService {
             return None;
         }
 
-        // If query contains multiple words, wrap in quotes for phrase search
-        // or add * for prefix matching on single words
-        if normalized.contains(' ') {
-            Some(format!("\"{}\"", normalized))
-        } else {
-            Some(format!("{}*", normalized)) // Prefix search for single words
+        let tokens: Vec<&str> = normalized
+            .split_whitespace()
+            .filter(|token| !token.is_empty())
+            .collect();
+        if tokens.is_empty() {
+            return None;
         }
+
+        // Use AND + prefix matching for multi-word queries to improve recall while
+        // keeping operator semantics explicit and sanitized.
+        let prefixed_tokens = tokens.iter().map(|token| format!("{}*", token));
+        Some(prefixed_tokens.collect::<Vec<_>>().join(" AND "))
     }
 
     /// Normalize query text after escaping:
@@ -490,10 +495,10 @@ mod tests {
             Some("test*".to_string())
         );
 
-        // Multiple words become phrase search
+        // Multiple words become AND-prefix search
         assert_eq!(
             SearchService::sanitize_fts_query("hello world"),
-            Some("\"hello world\"".to_string())
+            Some("hello* AND world*".to_string())
         );
 
         // Special characters are escaped

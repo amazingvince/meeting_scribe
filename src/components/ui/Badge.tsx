@@ -10,12 +10,10 @@ const badgeVariants = cva(
         default: 'bg-secondary text-secondary-foreground',
         secondary: 'bg-muted text-muted-foreground',
         outline: 'border border-border text-foreground',
-        success:
-          'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-        warning:
-          'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-        error: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-        info: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+        success: 'bg-success/15 text-success',
+        warning: 'bg-warning/15 text-warning',
+        error: 'bg-destructive/15 text-destructive',
+        info: 'bg-info/15 text-info',
       },
       size: {
         sm: 'px-2 py-0.5 text-xs',
@@ -49,15 +47,15 @@ interface StatusBadgeProps {
 }
 
 const statusConfig = {
-  recording: { color: 'bg-red-500', text: 'Recording', variant: 'error' as const },
+  recording: { color: 'bg-destructive', text: 'Recording', variant: 'error' as const },
   processing: {
-    color: 'bg-yellow-500',
+    color: 'bg-warning',
     text: 'Processing',
     variant: 'warning' as const,
   },
-  ready: { color: 'bg-green-500', text: 'Ready', variant: 'success' as const },
+  ready: { color: 'bg-success', text: 'Ready', variant: 'success' as const },
   archived: { color: 'bg-muted-foreground', text: 'Archived', variant: 'secondary' as const },
-  error: { color: 'bg-red-500', text: 'Error', variant: 'error' as const },
+  error: { color: 'bg-destructive', text: 'Error', variant: 'error' as const },
 };
 
 export function StatusBadge({ status, className }: StatusBadgeProps) {

@@ -18,6 +18,9 @@ jobs:
           - name: macOS Apple Silicon
             platform: macos-latest
             target: aarch64-apple-darwin
+          - name: macOS Intel
+            platform: macos-13
+            target: x86_64-apple-darwin
           - name: Windows x64
             platform: windows-latest
             target: x86_64-pc-windows-msvc
@@ -88,6 +91,10 @@ jobs:
               url="https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-arm64-1.22.0.tgz"
               lib_glob='libonnxruntime*.dylib'
               ;;
+            x86_64-apple-darwin)
+              url="https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-x64-1.22.0.tgz"
+              lib_glob='libonnxruntime*.dylib'
+              ;;
             *)
               echo "Unsupported target for ONNX runtime staging: ${{ matrix.target }}"
               exit 1
@@ -139,7 +146,7 @@ jobs:
           Get-ChildItem $resourceDir
 
       - name: Configure macOS deployment target
-        if: matrix.target == 'aarch64-apple-darwin'
+        if: contains(matrix.target, 'apple-darwin')
         run: |
           echo "MACOSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
           echo "CMAKE_OSX_DEPLOYMENT_TARGET=11.0" >> "$GITHUB_ENV"
@@ -160,7 +167,7 @@ jobs:
           args: --target ${{ matrix.target }}
 
       - name: Verify macOS bundle payload
-        if: matrix.target == 'aarch64-apple-darwin'
+        if: contains(matrix.target, 'apple-darwin')
         run: |
           set -euo pipefail
 

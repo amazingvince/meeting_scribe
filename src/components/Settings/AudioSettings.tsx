@@ -5,6 +5,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AudioLines } from 'lucide-react';
 import { Card, CardTitle } from '../ui/Card';
+import { Select } from '../ui/Select';
+import { Toggle } from '../ui/Toggle';
 import { useSettingsStore } from '../../stores';
 import * as api from '../../lib/tauri';
 
@@ -100,70 +102,41 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
 
       <div className="space-y-4">
         <div>
-          <label
-            htmlFor="echo-cancellation-backend"
-            className="mb-2 block text-sm font-medium text-foreground"
-          >
-            Echo Cancellation Backend
-          </label>
-          <select
+          <Select
             id="echo-cancellation-backend"
+            label="Echo Cancellation Backend"
             value={echoCancellationBackend}
             onChange={(e) => setEchoCancellationBackend(e.target.value as 'webrtc_aec3' | 'speex')}
-            className="w-full rounded-md border border-input bg-input-background px-3 py-2 text-sm text-foreground"
           >
             <option value="webrtc_aec3">WebRTC AEC3 (Recommended)</option>
             <option value="speex">SpeexDSP (Legacy/Fallback)</option>
-          </select>
+          </Select>
           <p className="mt-2 text-xs text-muted-foreground">
             Applied during transcript processing to remove speaker playback from the mic channel.
           </p>
         </div>
 
         <div className="space-y-3 rounded-lg border border-border p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                Live Transcript Preview (Experimental)
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Shows rolling semi-realtime transcript snippets while recording. Uses extra CPU.
-              </p>
-            </div>
-            <label className="inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={liveTranscriptionEnabled}
-                onChange={(e) => setLiveTranscriptionEnabled(e.target.checked)}
-                className="sr-only peer"
-              />
-              <span className="relative h-6 w-10 rounded-full bg-muted transition-colors peer peer-checked:bg-primary">
-                <span className="absolute top-0.5 left-0.5 w-5 h-5 bg-card rounded-full shadow transform peer-checked:translate-x-4 transition-transform" />
-              </span>
-            </label>
-          </div>
+          <Toggle
+            checked={liveTranscriptionEnabled}
+            onChange={setLiveTranscriptionEnabled}
+            label="Live Transcript Preview (Experimental)"
+            description="Shows rolling semi-realtime transcript snippets while recording. Uses extra CPU."
+          />
 
           {liveTranscriptionEnabled && (
-            <div>
-              <label
-                htmlFor="live-preview-interval"
-                className="mb-2 block text-sm font-medium text-foreground"
-              >
-                Preview Refresh Interval
-              </label>
-              <select
-                id="live-preview-interval"
-                value={liveTranscriptionIntervalSec}
-                onChange={(e) => setLiveTranscriptionIntervalSec(Number(e.target.value))}
-                className="w-full rounded-md border border-input bg-input-background px-3 py-2 text-sm text-foreground"
-              >
-                <option value={3}>Every 3 seconds</option>
-                <option value={5}>Every 5 seconds</option>
-                <option value={6}>Every 6 seconds</option>
-                <option value={8}>Every 8 seconds</option>
-                <option value={10}>Every 10 seconds</option>
-              </select>
-            </div>
+            <Select
+              id="live-preview-interval"
+              label="Preview Refresh Interval"
+              value={liveTranscriptionIntervalSec}
+              onChange={(e) => setLiveTranscriptionIntervalSec(Number(e.target.value))}
+            >
+              <option value={3}>Every 3 seconds</option>
+              <option value={5}>Every 5 seconds</option>
+              <option value={6}>Every 6 seconds</option>
+              <option value={8}>Every 8 seconds</option>
+              <option value={10}>Every 10 seconds</option>
+            </Select>
           )}
         </div>
 
@@ -182,38 +155,24 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
             </p>
 
             {isMac && (
-              <div>
-                <label
-                  htmlFor="mac-system-audio-backend"
-                  className="mb-2 block text-sm font-medium text-foreground"
-                >
-                  Capture Backend
-                </label>
-                <select
-                  id="mac-system-audio-backend"
-                  value={macSystemAudioBackend}
-                  onChange={(e) => setMacSystemAudioBackend(e.target.value as 'auto' | 'process_tap' | 'loopback')}
-                  className="w-full rounded-md border border-input bg-input-background px-3 py-2 text-sm text-foreground"
-                >
-                  <option value="auto">Auto (Process Tap, then loopback fallback)</option>
-                  <option value="process_tap">CoreAudio Process Tap (macOS 14.2+)</option>
-                  <option value="loopback">Loopback Input Device Only</option>
-                </select>
-              </div>
+              <Select
+                id="mac-system-audio-backend"
+                label="Capture Backend"
+                value={macSystemAudioBackend}
+                onChange={(e) => setMacSystemAudioBackend(e.target.value as 'auto' | 'process_tap' | 'loopback')}
+              >
+                <option value="auto">Auto (Process Tap, then loopback fallback)</option>
+                <option value="process_tap">CoreAudio Process Tap (macOS 14.2+)</option>
+                <option value="loopback">Loopback Input Device Only</option>
+              </Select>
             )}
 
             <div>
-              <label
-                htmlFor="mac-loopback-device"
-                className="mb-2 block text-sm font-medium text-foreground"
-              >
-                Preferred System Audio Input (Optional)
-              </label>
-              <select
+              <Select
                 id="mac-loopback-device"
+                label="Preferred System Audio Input (Optional)"
                 value={macSystemAudioDevice}
                 onChange={(e) => setMacSystemAudioDevice(e.target.value)}
-                className="w-full rounded-md border border-input bg-input-background px-3 py-2 text-sm text-foreground"
                 disabled={devicesLoading}
               >
                 <option value="">Auto-detect best monitor/loopback input</option>
@@ -222,7 +181,7 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
                     {device}
                   </option>
                 ))}
-              </select>
+              </Select>
               <p className="mt-2 text-xs text-muted-foreground">
                 {isMac
                   ? 'Choose a loopback input device if auto-detection is wrong.'

@@ -58,6 +58,10 @@ fn resolve_onnx_runtime_path() -> Option<PathBuf> {
         push_unique_path(&mut candidate_dirs, dir);
     }
 
+    for dir in onnx_path_env_dirs() {
+        push_unique_path(&mut candidate_dirs, dir);
+    }
+
     find_library_in_dirs(
         &candidate_dirs,
         onnx_runtime_library_name(),
@@ -125,6 +129,18 @@ fn onnx_system_dirs() -> Vec<PathBuf> {
     }
 }
 
+fn onnx_path_env_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            if !dir.as_os_str().is_empty() {
+                dirs.push(dir);
+            }
+        }
+    }
+    dirs
+}
+
 fn push_unique_path(paths: &mut Vec<PathBuf>, path: PathBuf) {
     if !paths.iter().any(|p| p == &path) {
         paths.push(path);
@@ -152,7 +168,7 @@ fn find_library_in_dirs(dirs: &[PathBuf], exact_name: &str, prefix_name: &str) -
             if path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .is_some_and(|name| name.starts_with(prefix_name))
+                .is_some_and(|name| is_runtime_library_name(name, exact_name, prefix_name))
             {
                 return Some(path);
             }
@@ -160,6 +176,19 @@ fn find_library_in_dirs(dirs: &[PathBuf], exact_name: &str, prefix_name: &str) -
     }
 
     None
+}
+
+fn is_runtime_library_name(name: &str, exact_name: &str, prefix_name: &str) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, avoid accidentally selecting provider DLLs.
+        return name.eq_ignore_ascii_case(exact_name);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        name == exact_name || name.starts_with(prefix_name)
+    }
 }
 
 fn onnx_runtime_library_name() -> &'static str {
@@ -182,17 +211,17 @@ fn onnx_runtime_library_name() -> &'static str {
 fn onnx_runtime_library_prefix() -> &'static str {
     #[cfg(target_os = "windows")]
     {
-        "onnxruntime.dll"
+        "onnxruntime"
     }
 
     #[cfg(target_os = "linux")]
     {
-        "libonnxruntime.so"
+        "libonnxruntime.so."
     }
 
     #[cfg(target_os = "macos")]
     {
-        "libonnxruntime.dylib"
+        "libonnxruntime."
     }
 }
 
@@ -243,7 +272,7 @@ impl Default for AppConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::find_library_in_dirs;
+    use super::{find_library_in_dirs, is_runtime_library_name};
     use std::path::PathBuf;
 
     #[test]
@@ -278,5 +307,35 @@ mod tests {
         .expect("must find versioned library");
 
         assert_eq!(found, versioned);
+    }
+
+    #[test]
+    fn find_library_accepts_versioned_dylib() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let versioned = tmp.path().join("libonnxruntime.1.22.0.dylib");
+        std::fs::write(&versioned, b"versioned").expect("write versioned");
+
+        let found = find_library_in_dirs(
+            &[PathBuf::from(tmp.path())],
+            "libonnxruntime.dylib",
+            "libonnxruntime.",
+        )
+        .expect("must find versioned library");
+
+        assert_eq!(found, versioned);
+    }
+
+    #[test]
+    fn runtime_name_matching_skips_provider_library() {
+        assert!(!is_runtime_library_name(
+            "libonnxruntime_providers_shared.dylib",
+            "libonnxruntime.dylib",
+            "libonnxruntime.",
+        ));
+        assert!(is_runtime_library_name(
+            "libonnxruntime.1.22.0.dylib",
+            "libonnxruntime.dylib",
+            "libonnxruntime.",
+        ));
     }
 }

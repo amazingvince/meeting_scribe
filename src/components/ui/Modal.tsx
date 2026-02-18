@@ -62,7 +62,7 @@ export function Modal({
           <div className="flex min-h-full items-center justify-center p-4">
             <motion.div
               className={cn(
-                'relative w-full rounded-xl border border-border bg-card shadow-2xl',
+                'relative w-full rounded-xl border border-border bg-card shadow-float',
                 sizeStyles[size]
               )}
               initial={{ opacity: 0, y: 10, scale: 0.985 }}

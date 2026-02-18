@@ -10,8 +10,8 @@ export function Skeleton({ className = '' }: SkeletonProps) {
   return (
     <div
       className={`
-        animate-pulse
-        bg-muted
+        bg-gradient-to-r from-muted via-muted-foreground/5 to-muted
+        bg-[length:200%_100%] animate-shimmer
         rounded
         ${className}
       `}

@@ -9,7 +9,7 @@ import { Card } from '../ui/Card';
 import { StatusBadge } from '../ui/Badge';
 import { Button } from '../ui/Button';
 import { formatDuration, formatRelativeDate } from '../../utils/format';
-import { useState, type ReactNode } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 
 interface MeetingSearchMatch {
   snippet: string;
@@ -42,7 +42,7 @@ function renderSnippet(snippet: string, query: string): ReactNode {
   return (
     <>
       {snippet.slice(0, startIndex)}
-      <mark className="rounded bg-amber-200/80 dark:bg-amber-400/30 px-0.5 text-inherit">
+      <mark className="rounded bg-highlight/60 px-0.5 text-inherit">
         {snippet.slice(startIndex, endIndex)}
       </mark>
       {snippet.slice(endIndex)}
@@ -58,6 +58,17 @@ export function MeetingCard({
   onDelete,
 }: MeetingCardProps) {
   const [showMenu, setShowMenu] = useState(false);
+
+  useEffect(() => {
+    if (!showMenu) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowMenu(false);
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showMenu]);
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -121,7 +132,7 @@ export function MeetingCard({
                       setShowMenu(false);
                     }}
                   />
-                  <div className="absolute right-0 top-full z-20 mt-1 min-w-[120px] rounded-lg border border-border bg-card py-1 shadow-lg">
+                  <div className="absolute right-0 top-full z-20 mt-1 min-w-[120px] rounded-lg border border-border bg-card py-1 shadow-float">
                     <button
                       className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-destructive hover:bg-destructive/5"
                       onClick={handleDelete}

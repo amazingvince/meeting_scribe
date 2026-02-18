@@ -116,7 +116,7 @@ export function MeetingSelector({ selectedIds, onSelect }: MeetingSelectorProps)
         {selectedIds.length > 0 && (
           <button
             onClick={clearAll}
-            className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline"
+            className="text-xs text-brand hover:underline"
           >
             Clear ({selectedIds.length})
           </button>
@@ -132,12 +132,12 @@ export function MeetingSelector({ selectedIds, onSelect }: MeetingSelectorProps)
             return (
               <span
                 key={id}
-                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300"
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded-full bg-brand/10 text-brand"
               >
                 <span className="max-w-24 truncate">{meeting.title}</span>
                 <button
                   onClick={() => toggleMeeting(id)}
-                  className="hover:bg-indigo-200 dark:hover:bg-indigo-800 rounded-full p-0.5"
+                  className="hover:bg-brand/20 rounded-full p-0.5"
                 >
                   <X className="w-3 h-3" />
                 </button>
@@ -181,7 +181,7 @@ function MeetingItem({ meeting, selected, onToggle }: MeetingItemProps) {
       onClick={() => onToggle(meeting.id)}
       className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition-colors ${
         selected
-          ? 'bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700'
+          ? 'bg-brand/5 border border-brand/20'
           : 'hover:bg-accent border border-transparent'
       }`}
     >
@@ -189,7 +189,7 @@ function MeetingItem({ meeting, selected, onToggle }: MeetingItemProps) {
       <div
         className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
           selected
-            ? 'bg-indigo-600 border-indigo-600 text-white'
+            ? 'bg-brand border-brand text-brand-foreground'
             : 'border-border'
         }`}
       >

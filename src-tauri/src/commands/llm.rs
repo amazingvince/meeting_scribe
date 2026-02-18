@@ -76,10 +76,10 @@ enum GeneratedSummaryPayload {
     ActionItems(Vec<ActionItem>),
 }
 
+type SummaryStoragePayload = (String, Option<String>, Option<Vec<ActionItem>>);
+
 impl GeneratedSummaryPayload {
-    fn into_content_for_storage(
-        self,
-    ) -> Result<(String, Option<String>, Option<Vec<ActionItem>>), String> {
+    fn into_content_for_storage(self) -> Result<SummaryStoragePayload, String> {
         match self {
             Self::Full(summary) => Ok((summary.clone(), Some(summary), None)),
             Self::ActionItems(items) => {

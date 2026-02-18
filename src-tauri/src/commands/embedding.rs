@@ -13,7 +13,7 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use std::io::Write as IoWrite;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tauri::{AppHandle, Emitter};
 use tracing::{debug, info};
 
@@ -22,17 +22,28 @@ use super::SharedStorageState;
 /// Shared embedding service state type (lazy loaded)
 pub type SharedEmbeddingService = Arc<Mutex<Option<Arc<EmbeddingService>>>>;
 
-/// Initialize embedding service (downloads model if needed)
-///
-/// This will download the embedding model (~300MB) if it's not already present.
-/// Progress events are emitted as `embedding-download-progress`.
-#[tauri::command]
-pub async fn initialize_embedding(
-    app: AppHandle,
-    config: tauri::State<'_, crate::AppConfig>,
-    embedding: tauri::State<'_, SharedEmbeddingService>,
+fn embedding_init_mutex() -> &'static tokio::sync::Mutex<()> {
+    static EMBEDDING_INIT_MUTEX: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    EMBEDDING_INIT_MUTEX.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+async fn ensure_embedding_initialized(
+    app: &AppHandle,
+    config: &crate::AppConfig,
+    embedding: &SharedEmbeddingService,
 ) -> Result<bool, String> {
     // Check if already initialized
+    {
+        let service = embedding.lock();
+        if service.is_some() {
+            info!("Embedding service already initialized");
+            return Ok(true);
+        }
+    }
+
+    let _init_guard = embedding_init_mutex().lock().await;
+
+    // Re-check after acquiring the init lock in case another request initialized first.
     {
         let service = embedding.lock();
         if service.is_some() {
@@ -63,7 +74,7 @@ pub async fn initialize_embedding(
         info!("Downloading embedding model file...");
         let model_info = embedding_model.model_info();
         download_file_with_progress(
-            &app,
+            app,
             &model_info.download_url,
             &model_path,
             568_000, // Model file is small (~568KB), weights are in data file
@@ -76,7 +87,7 @@ pub async fn initialize_embedding(
     if !data_path.exists() {
         info!("Downloading embedding model weights...");
         download_file_with_progress(
-            &app,
+            app,
             embedding_model.data_file_url(),
             &data_path,
             embedding_model.data_file_size(),
@@ -90,7 +101,7 @@ pub async fn initialize_embedding(
         info!("Downloading tokenizer...");
         let tokenizer_info = EmbeddingModel::tokenizer_info();
         download_file_with_progress(
-            &app,
+            app,
             &tokenizer_info.download_url,
             &tokenizer_path,
             tokenizer_info.size_bytes,
@@ -112,6 +123,19 @@ pub async fn initialize_embedding(
 
     info!("Embedding service initialized successfully");
     Ok(true)
+}
+
+/// Initialize embedding service (downloads model if needed)
+///
+/// This will download the embedding model (~300MB) if it's not already present.
+/// Progress events are emitted as `embedding-download-progress`.
+#[tauri::command]
+pub async fn initialize_embedding(
+    app: AppHandle,
+    config: tauri::State<'_, crate::AppConfig>,
+    embedding: tauri::State<'_, SharedEmbeddingService>,
+) -> Result<bool, String> {
+    ensure_embedding_initialized(&app, &config, embedding.inner()).await
 }
 
 /// Download a file with progress events
@@ -260,10 +284,13 @@ pub fn embed_text(
 #[tauri::command]
 pub async fn embed_meeting_transcript(
     app: AppHandle,
+    config: tauri::State<'_, crate::AppConfig>,
     embedding: tauri::State<'_, SharedEmbeddingService>,
     storage: tauri::State<'_, SharedStorageState>,
     meeting_id: String,
 ) -> Result<ProcessingResult, String> {
+    ensure_embedding_initialized(&app, &config, embedding.inner()).await?;
+
     // Get embedding service (clone the Arc)
     let embedding_service = {
         let guard = embedding.lock();
@@ -342,12 +369,16 @@ pub fn get_embedding_info(embedding: tauri::State<'_, SharedEmbeddingService>) -
 /// Search embeddings by query text
 #[tauri::command]
 pub async fn semantic_search(
+    app: AppHandle,
+    config: tauri::State<'_, crate::AppConfig>,
     embedding: tauri::State<'_, SharedEmbeddingService>,
     storage: tauri::State<'_, SharedStorageState>,
     query: String,
     limit: Option<usize>,
     meeting_id: Option<String>,
 ) -> Result<Vec<SemanticSearchResult>, String> {
+    ensure_embedding_initialized(&app, &config, embedding.inner()).await?;
+
     // Generate query embedding
     let query_vector = {
         let guard = embedding.lock();
@@ -466,6 +497,8 @@ pub async fn delete_embedding(
 /// Uses Reciprocal Rank Fusion (RRF) to merge results from both search methods.
 #[tauri::command]
 pub async fn hybrid_search(
+    app: AppHandle,
+    config: tauri::State<'_, crate::AppConfig>,
     embedding: tauri::State<'_, SharedEmbeddingService>,
     storage: tauri::State<'_, SharedStorageState>,
     query: String,
@@ -476,14 +509,15 @@ pub async fn hybrid_search(
 
     // Run semantic search (vector)
     let vector_results = semantic_search(
+        app.clone(),
+        config.clone(),
         embedding.clone(),
         storage.clone(),
         query.clone(),
         Some(limit * 2), // Get more results for fusion
         meeting_id.clone(),
     )
-    .await
-    .unwrap_or_default();
+    .await?;
 
     // Run FTS search
     let fts_results = {
@@ -507,13 +541,13 @@ pub async fn hybrid_search(
     // RRF score = sum(1 / (k + rank)) where k = 60 is a constant
     const RRF_K: f32 = 60.0;
 
-    // Build a map of text -> (vector_rank, fts_rank, best_result)
+    // Build a map of result key -> best merged result score.
     let mut result_map: std::collections::HashMap<String, HybridResult> =
         std::collections::HashMap::new();
 
     // Add vector results with their ranks
     for (rank, result) in vector_results.iter().enumerate() {
-        let key = normalize_text(&result.text);
+        let key = hybrid_result_key(&result.meeting_id, result.start_ms, &result.text);
         let rrf_score = 1.0 / (RRF_K + rank as f32 + 1.0);
 
         result_map
@@ -527,7 +561,7 @@ pub async fn hybrid_search(
 
     // Add FTS results with their ranks
     for (rank, fts_hit) in fts_results.iter().enumerate() {
-        let key = normalize_text(&fts_hit.text);
+        let key = hybrid_result_key(&fts_hit.meeting_id, Some(fts_hit.start_ms), &fts_hit.text);
         let rrf_score = 1.0 / (RRF_K + rank as f32 + 1.0);
 
         result_map
@@ -575,6 +609,15 @@ fn normalize_text(text: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn hybrid_result_key(meeting_id: &str, start_ms: Option<i64>, text: &str) -> String {
+    format!(
+        "{}::{}::{}",
+        meeting_id,
+        start_ms.unwrap_or(-1),
+        normalize_text(text)
+    )
 }
 
 /// Helper struct for RRF merging
@@ -638,9 +681,12 @@ pub async fn get_unembedded_meetings(
 #[tauri::command]
 pub async fn batch_embed_meetings(
     app: AppHandle,
+    config: tauri::State<'_, crate::AppConfig>,
     embedding: tauri::State<'_, SharedEmbeddingService>,
     storage: tauri::State<'_, SharedStorageState>,
 ) -> Result<BatchEmbedResult, String> {
+    ensure_embedding_initialized(&app, &config, embedding.inner()).await?;
+
     // Get embedding service
     let embedding_service = {
         let guard = embedding.lock();
@@ -826,4 +872,23 @@ pub struct SemanticSearchResult {
     pub text: String,
     pub start_ms: Option<i64>,
     pub similarity: f32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hybrid_result_key;
+
+    #[test]
+    fn hybrid_result_key_is_scoped_by_meeting() {
+        let key_a = hybrid_result_key("meeting-a", Some(1_000), "same text");
+        let key_b = hybrid_result_key("meeting-b", Some(1_000), "same text");
+        assert_ne!(key_a, key_b);
+    }
+
+    #[test]
+    fn hybrid_result_key_is_scoped_by_start_time() {
+        let key_a = hybrid_result_key("meeting-a", Some(1_000), "same text");
+        let key_b = hybrid_result_key("meeting-a", Some(2_000), "same text");
+        assert_ne!(key_a, key_b);
+    }
 }

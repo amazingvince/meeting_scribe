@@ -56,8 +56,14 @@ export function ModelDownloadCard({
   onSetDefault,
   downloadDetails,
 }: ModelDownloadCardProps) {
+  const canLoad = downloaded && Boolean(onLoad) && !isLoaded;
+
   const handleRetry = () => {
     onClearError?.();
+    if (canLoad && onLoad) {
+      onLoad();
+      return;
+    }
     onDownload();
   };
 
@@ -165,7 +171,7 @@ export function ModelDownloadCard({
               <Trash2 className="w-4 h-4 text-destructive" />
             </Button>
           )}
-          {downloaded && onLoad && !isLoaded && !error && (
+          {canLoad && onLoad && (
             <Button
               size="sm"
               onClick={onLoad}
@@ -176,7 +182,7 @@ export function ModelDownloadCard({
               ) : (
                 <Play className="w-4 h-4" />
               )}
-              {isLoadingModel ? 'Loading...' : 'Load'}
+              {isLoadingModel ? 'Loading...' : error ? 'Retry Load' : 'Load'}
             </Button>
           )}
           {!downloaded && !error && (
@@ -194,10 +200,10 @@ export function ModelDownloadCard({
               {isDownloading ? 'Downloading...' : 'Download'}
             </Button>
           )}
-          {error && (
+          {error && !canLoad && (
             <Button variant="secondary" size="sm" onClick={handleRetry}>
               <RefreshCw className="w-4 h-4" />
-              Retry
+              {canLoad ? 'Retry Load' : 'Retry Download'}
             </Button>
           )}
         </div>

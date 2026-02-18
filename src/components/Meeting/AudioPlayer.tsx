@@ -257,7 +257,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
     }
 
     return (
-      <div className="space-y-3 rounded-lg border border-border bg-muted/50 p-4">
+      <div className="space-y-3">
         {/* Hidden audio elements */}
         {micUrl && (
           <audio
@@ -340,8 +340,8 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(
                 [&::-webkit-slider-thumb]:w-3
                 [&::-webkit-slider-thumb]:h-3
                 [&::-webkit-slider-thumb]:rounded-full
-                [&::-webkit-slider-thumb]:bg-muted-foreground
-                [&::-webkit-slider-thumb]:hover:bg-foreground"
+                [&::-webkit-slider-thumb]:bg-primary
+                [&::-webkit-slider-thumb]:hover:bg-primary/90"
             />
           </div>
         </div>

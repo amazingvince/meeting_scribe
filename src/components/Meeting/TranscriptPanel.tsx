@@ -14,7 +14,9 @@ import { formatDuration } from '../../utils/format';
 import { useTauriEvent } from '../../hooks';
 import { useMeetingsStore, useSettingsStore, useToastStore } from '../../stores';
 import type { MeetingProcessingProgressEvent } from '../../lib/tauri';
+import type { MeetingProcessingFinishedEvent } from '../../types';
 import * as api from '../../lib/tauri';
+import { processingStageLabel } from '../../utils/stages';
 
 interface TranscriptPanelProps {
   meetingId: string;
@@ -26,20 +28,6 @@ interface TranscriptPanelProps {
   onTimestampClick?: (ms: number) => void;
 }
 
-function getProcessingStageLabel(stage: string): string {
-  switch (stage) {
-    case 'TranscribingMic':
-      return 'Transcribing microphone audio...';
-    case 'TranscribingSystem':
-      return 'Transcribing system audio...';
-    case 'Merging':
-      return 'Merging transcript channels...';
-    case 'Complete':
-      return 'Transcript processing complete.';
-    default:
-      return 'Processing transcript...';
-  }
-}
 
 export function TranscriptPanel({
   meetingId,
@@ -70,6 +58,16 @@ export function TranscriptPanel({
     (data) => {
       if (data.meeting_id !== meetingId) return;
       setProcessingProgress(data);
+    }
+  );
+
+  useTauriEvent<MeetingProcessingFinishedEvent>(
+    'meeting-processing-finished',
+    (event) => {
+      if (event.meeting_id !== meetingId) return;
+
+      setIsProcessing(false);
+      setProcessingProgress(null);
     }
   );
 
@@ -127,11 +125,17 @@ export function TranscriptPanel({
     setIsLoadingModel(true);
     try {
       const success = await settings.initializeTranscription();
-      if (success) {
-        setShowLoadModal(false);
-        // Proceed with transcription after model loads
-        await doTranscription();
+      if (!success) {
+        const loadError =
+          useSettingsStore.getState().error ??
+          'Unable to load transcription model. Open Settings and try loading again.';
+        toast.warning('Failed to load model', loadError);
+        return;
       }
+
+      setShowLoadModal(false);
+      // Proceed with transcription after model loads
+      await doTranscription();
     } catch (e) {
       toast.error(
         'Failed to load model',
@@ -146,7 +150,7 @@ export function TranscriptPanel({
   const isActivelyProcessing = isProcessing || hasLiveProcessingProgress;
   const showProcessingStatus = isActivelyProcessing || meetingStatus === 'processing';
   const statusLabel = processingProgress
-    ? getProcessingStageLabel(processingProgress.stage)
+    ? processingStageLabel(processingProgress.stage)
     : 'Processing transcript...';
   const statusMessage =
     processingProgress?.message ??
@@ -166,7 +170,6 @@ export function TranscriptPanel({
           <ProgressBar
             value={processingProgress.percent}
             size="sm"
-            color="blue"
             showLabel
           />
         </div>
@@ -297,7 +300,7 @@ export function TranscriptPanel({
               {group.segments.map((segment, segIdx) => (
                 <span
                   key={segIdx}
-                  className="hover:bg-yellow-100 dark:hover:bg-yellow-900/20 cursor-pointer rounded px-0.5"
+                  className="hover:bg-highlight/40 cursor-pointer rounded px-0.5"
                   onClick={() => onTimestampClick?.(segment.start_ms)}
                 >
                   {segment.text}{' '}

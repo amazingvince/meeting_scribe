@@ -57,6 +57,7 @@ pnpm tauri build --debug
 - Optional backend override: `MEETING_SCRIBE_MACOS_SYSTEM_AUDIO_BACKEND=process_tap|loopback|auto`.
 - Optional echo backend override for transcription cleanup: `MEETING_SCRIBE_ECHO_BACKEND=webrtc_aec3|speex`.
 - Optional real-time cleanup backend override (recording-time AEC): `MEETING_SCRIBE_REALTIME_ECHO_BACKEND=webrtc_aec3|speex` (macOS defaults to WebRTC if unset).
+- Optional LLM GPU override: `MEETING_SCRIBE_LLM_GPU_LAYERS=<n>` (`0` forces CPU-only; unset tries GPU first and falls back as needed).
 
 Windows convenience script (sets a few env vars before `pnpm tauri dev`):
 

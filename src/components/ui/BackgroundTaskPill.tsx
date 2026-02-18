@@ -15,6 +15,7 @@ import type {
   LlmDownloadProgress,
   MeetingProcessingFinishedEvent,
 } from '../../types';
+import { processingStageLabel } from '../../utils/stages';
 
 const TRANSCRIPTION_MODEL_LABELS: Record<string, string> = {
   'parakeet-tdt-0.6b-v3-int8': 'Parakeet model',
@@ -53,22 +54,6 @@ interface TimedSummaryTask {
   updatedAt: number;
 }
 
-function meetingStageLabel(stage: string): string {
-  switch (stage) {
-    case 'TranscribingMic':
-      return 'Transcribing microphone audio';
-    case 'TranscribingSystem':
-      return 'Transcribing system audio';
-    case 'Merging':
-      return 'Merging transcript channels';
-    case 'Complete':
-      return 'Transcript processing complete';
-    case 'Failed':
-      return 'Transcript processing failed';
-    default:
-      return 'Processing transcript';
-  }
-}
 
 export function BackgroundTaskPill() {
   const navigate = useNavigate();
@@ -298,7 +283,7 @@ export function BackgroundTaskPill() {
       return {
         kind: 'meeting' as const,
         title: 'Transcript Processing',
-        subtitle: meetingTask.message || meetingStageLabel(meetingTask.stage),
+        subtitle: meetingTask.message || processingStageLabel(meetingTask.stage),
         percent: Math.round(meetingTask.percent),
         action: () => navigate(`/meeting/${meetingTask.meetingId}`),
         icon: <Wand2 className="w-4 h-4" />,
@@ -353,11 +338,11 @@ export function BackgroundTaskPill() {
   }
 
   return (
-    <div className="fixed top-4 right-4 z-40 pointer-events-none">
+    <div className="fixed bottom-20 right-4 md:bottom-4 z-40 pointer-events-none">
       <button
         type="button"
         onClick={activeTask.action}
-        className="pointer-events-auto w-[260px] rounded-xl border border-border bg-card/95 shadow-lg backdrop-blur px-3 py-2 text-left"
+        className="pointer-events-auto w-[260px] rounded-xl border border-border bg-card/95 shadow-float backdrop-blur px-3 py-2 text-left"
       >
         <div className="flex items-center gap-2 text-primary">
           <Loader2 className="w-4 h-4 animate-spin" />

@@ -70,7 +70,7 @@ export function NotesPanel({ meetingId }: NotesPanelProps) {
     <div className="h-full flex flex-col p-4 md:p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-foreground flex items-center gap-2">
-          <FileText className="w-5 h-5 text-blue-500" />
+          <FileText className="w-5 h-5 text-brand" />
           Notes
         </h3>
         <Button
@@ -99,16 +99,16 @@ export function NotesPanel({ meetingId }: NotesPanelProps) {
 
       <div className="mt-2 min-h-4">
         {isSaving ? (
-          <p className="text-xs text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+          <p className="text-xs text-brand flex items-center gap-1">
             <Loader2 className="w-3 h-3 animate-spin" />
             Saving changes...
           </p>
         ) : hasChanges ? (
-          <p className="text-xs text-amber-600 dark:text-amber-400">
+          <p className="text-xs text-warning">
             You have unsaved changes
           </p>
         ) : !isLoading ? (
-          <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+          <p className="text-xs text-success flex items-center gap-1">
             <Check className="w-3 h-3" />
             All changes saved
           </p>

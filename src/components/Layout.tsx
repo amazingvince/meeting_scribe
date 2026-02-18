@@ -185,7 +185,7 @@ export function Layout({ children, appInfo }: LayoutProps) {
       {/* Mobile bottom nav */}
       <nav className="pointer-events-none fixed inset-x-0 bottom-3 z-40 px-3 md:hidden">
         <div
-          className="pointer-events-auto mx-auto w-full max-w-lg rounded-xl border border-border bg-card/95 p-1.5 shadow-lg backdrop-blur"
+          className="pointer-events-auto mx-auto w-full max-w-lg rounded-xl border border-border bg-card/95 p-1.5 shadow-float backdrop-blur"
           title={appInfo ? `v${appInfo.version} • ${appInfo.platform}` : undefined}
         >
           <div className="grid grid-cols-4 gap-1">

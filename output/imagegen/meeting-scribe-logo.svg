@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Meeting Scribe logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0E7490" />
+      <stop offset="100%" stop-color="#1D4ED8" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#14B8A6" />
+      <stop offset="100%" stop-color="#0EA5E9" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#0F172A" flood-opacity="0.26" />
+    </filter>
+  </defs>
+
+  <circle cx="512" cy="512" r="420" fill="url(#bg)" filter="url(#shadow)" />
+
+  <path fill="#FFFFFF" d="M315 334H709C749 334 781 366 781 406V582C781 622 749 654 709 654H545L435 748C420 761 396 751 396 731V654H315C275 654 243 622 243 582V406C243 366 275 334 315 334Z" />
+
+  <rect x="346" y="468" width="44" height="120" rx="20" fill="#1E3A8A" />
+  <rect x="422" y="430" width="44" height="196" rx="20" fill="#1E3A8A" />
+  <rect x="498" y="454" width="44" height="148" rx="20" fill="#1E3A8A" />
+  <rect x="574" y="420" width="44" height="214" rx="20" fill="#1E3A8A" />
+  <rect x="650" y="478" width="44" height="108" rx="20" fill="#1E3A8A" />
+
+  <path fill="url(#accent)" d="M806 326L894 414L798 510L710 422L806 326Z" />
+  <path fill="#0C97BC" d="M850 370L894 414L798 510L754 466L850 370Z" opacity="0.55" />
+  <circle cx="804" cy="420" r="14" fill="#FFFFFF" />
+</svg>

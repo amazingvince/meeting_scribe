@@ -8,7 +8,6 @@ interface ProgressBarProps {
   value: number;
   max?: number;
   size?: 'sm' | 'md' | 'lg';
-  color?: 'indigo' | 'green' | 'blue' | 'red';
   showLabel?: boolean;
   label?: string;
 }
@@ -19,18 +18,10 @@ const sizeStyles = {
   lg: 'h-3',
 };
 
-const colorStyles = {
-  indigo: 'bg-indigo-600',
-  green: 'bg-green-600',
-  blue: 'bg-blue-600',
-  red: 'bg-red-600',
-};
-
 export function ProgressBar({
   value,
   max = 100,
   size = 'md',
-  color = 'indigo',
   showLabel = false,
   label,
 }: ProgressBarProps) {
@@ -54,7 +45,7 @@ export function ProgressBar({
         className={`w-full bg-muted rounded-full overflow-hidden ${sizeStyles[size]}`}
       >
         <div
-          className={`${colorStyles[color]} ${sizeStyles[size]} rounded-full transition-all duration-300 ease-out`}
+          className={`bg-primary ${sizeStyles[size]} rounded-full transition-all duration-300 ease-out`}
           style={{ width: `${percentage}%` }}
         />
       </div>

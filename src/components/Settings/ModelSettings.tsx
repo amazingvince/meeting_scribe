@@ -66,7 +66,6 @@ export function ModelSettings() {
     transcriptionReady,
     embeddingDownloaded,
     embeddingReady,
-    llmReady,
     isLoadingModels,
     isDownloading,
     isLoadingTranscription,
@@ -159,7 +158,6 @@ export function ModelSettings() {
               <ProgressBar
                 value={downloadProgress}
                 size="sm"
-                color="blue"
                 label={formatDownloadStage(downloadStage)}
               />
               {(transferSummary || speedSummary || etaSummary || downloadFile || downloadSourceModelId) && (
@@ -221,7 +219,8 @@ export function ModelSettings() {
         <div className="space-y-3">
           {llmModels.map((model) => {
             // Check if this specific model is currently loaded
-            const isThisModelLoaded = llmReady && llmStatus?.current_model === model.model;
+            const isThisModelLoaded =
+              Boolean(llmStatus?.loaded) && llmStatus?.current_model === model.model;
             return (
               <ModelDownloadCard
                 key={model.model}
@@ -241,7 +240,7 @@ export function ModelSettings() {
                 error={errorModel === model.model ? error : null}
                 onClearError={clearError}
                 isLoaded={isThisModelLoaded}
-                isLoadingModel={isLoadingLlm}
+                isLoadingModel={isLoadingLlm && llmModel === model.model}
                 onLoad={() => initializeLlm(model.model)}
                 isDefault={llmModel === model.model}
                 onSetDefault={() => setLlmModel(model.model)}
@@ -332,7 +331,6 @@ export function ModelSettings() {
             <ProgressBar
               value={batchEmbedProgress.current + 1}
               max={batchEmbedProgress.total}
-              color="blue"
               size="sm"
               showLabel
             />
@@ -341,11 +339,11 @@ export function ModelSettings() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm">
               {unembeddedCount > 0 ? (
-                <span className="text-amber-600 dark:text-amber-400">
+                <span className="text-warning">
                   {unembeddedCount} meeting{unembeddedCount !== 1 ? 's' : ''} need{unembeddedCount === 1 ? 's' : ''} embedding
                 </span>
               ) : (
-                <span className="text-green-600 dark:text-green-400">
+                <span className="text-success">
                   All meetings are indexed
                 </span>
               )}

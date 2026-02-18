@@ -57,8 +57,8 @@ export function ChatView() {
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-4 border-b border-border bg-card">
         <div className="flex items-center gap-2.5">
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-violet-500/10">
-            <Sparkles className="w-4 h-4 text-violet-500" />
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-brand/10">
+            <Sparkles className="w-4 h-4 text-brand" />
           </div>
           <div>
             <h2 className="text-foreground">Chat with Meetings</h2>
@@ -77,7 +77,7 @@ export function ChatView() {
           >
             <Filter className="w-4 h-4" />
             {selectedMeetingIds.length > 0 && (
-              <span className="bg-indigo-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+              <span className="bg-brand text-white text-xs px-1.5 py-0.5 rounded-full">
                 {selectedMeetingIds.length}
               </span>
             )}
@@ -121,8 +121,8 @@ export function ChatView() {
       <div className="no-scrollbar flex-1 min-h-0 overflow-y-auto">
         {!hasMessages ? (
           <div className="flex flex-col items-center justify-center h-full min-h-[500px] px-6">
-            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-violet-500/10 mb-5">
-              <Sparkles className="w-7 h-7 text-violet-500" />
+            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-brand/10 mb-5">
+              <Sparkles className="w-7 h-7 text-brand" />
             </div>
             <h3 className="text-foreground mb-1.5">
               Ask anything about your meetings

@@ -3,8 +3,8 @@
  * Provides model status and download progress
  */
 
-import { useEffect, useRef } from 'react';
-import { useSettingsStore, useToastStore } from '../stores';
+import { useEffect } from 'react';
+import { useSettingsStore } from '../stores';
 import { useTauriEvent } from './useTauriEvent';
 import type {
   TranscriptionBackend,
@@ -30,7 +30,6 @@ function asTranscriptionBackend(
 
 export function useModels() {
   const store = useSettingsStore();
-  const toast = useToastStore();
   const {
     setDownloadProgress,
     refreshModelStatus,
@@ -38,17 +37,12 @@ export function useModels() {
     refreshUnembeddedCount,
   } = store;
 
-  // Track if we've shown the completion toast to avoid duplicates
-  const completedModelsRef = useRef<Set<string>>(new Set());
-
   // Subscribe to download progress events
   useTauriEvent<DownloadProgressEvent>('model-download-progress', (data) => {
     const activeDownload = useSettingsStore.getState().downloadingModel;
     const modelKey =
       transcriptionModelIdMap[data.model_id] ??
       asTranscriptionBackend(activeDownload);
-    const toastKey = modelKey ?? data.model_id;
-
     setDownloadProgress({
       progress: data.percent,
       modelKey,
@@ -59,14 +53,6 @@ export function useModels() {
       totalBytes: data.total_bytes ?? null,
       speedBps: data.speed_bps ?? null,
     });
-
-    // Show completion toast when reaching 100%
-    if (data.percent >= 100 && !completedModelsRef.current.has(toastKey)) {
-      completedModelsRef.current.add(toastKey);
-      toast.success(`${modelKey ?? data.model_id} downloaded successfully`);
-      // Clear after a delay to allow re-download
-      setTimeout(() => completedModelsRef.current.delete(toastKey), 5000);
-    }
   });
 
   useTauriEvent<LlmDownloadProgress>('llm-download-progress', (data) => {
@@ -80,19 +66,11 @@ export function useModels() {
       totalBytes: data.total_bytes,
       speedBps: data.speed_bps ?? null,
     });
-
-    // Show completion toast when reaching 100%
-    if (data.percent >= 100 && !completedModelsRef.current.has(data.model)) {
-      completedModelsRef.current.add(data.model);
-      toast.success(`${data.model} downloaded successfully`);
-      setTimeout(() => completedModelsRef.current.delete(data.model), 5000);
-    }
   });
 
   useTauriEvent<EmbeddingDownloadProgress>(
     'embedding-download-progress',
     (data) => {
-      const toastKey = 'embedding';
       setDownloadProgress({
         progress: data.percent,
         modelKey: 'embedding',
@@ -104,12 +82,6 @@ export function useModels() {
         speedBps: null,
         file: data.file,
       });
-
-      if (data.percent >= 100 && !completedModelsRef.current.has(toastKey)) {
-        completedModelsRef.current.add(toastKey);
-        toast.success('Embedding model downloaded successfully');
-        setTimeout(() => completedModelsRef.current.delete(toastKey), 5000);
-      }
     }
   );
 
@@ -117,7 +89,6 @@ export function useModels() {
   useTauriEvent<BatchEmbedProgress>('batch-embed-progress', (data) => {
     if (data.status === 'complete') {
       setBatchEmbedProgress(null);
-      toast.success(`Embedded ${data.total} meeting(s) successfully`);
       refreshUnembeddedCount();
     } else {
       setBatchEmbedProgress({

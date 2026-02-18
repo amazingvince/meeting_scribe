@@ -7,6 +7,7 @@ import { create } from 'zustand';
 import type { ChatMessage, ChatSource, SemanticSearchResult } from '../types';
 import type { ChatHistoryMessage, ChatTokenEvent } from '../lib/tauri';
 import * as api from '../lib/tauri';
+import { modelManager } from '../lib/modelManager';
 
 /** Maximum number of history messages to include in context */
 const MAX_HISTORY_MESSAGES = 6;
@@ -104,6 +105,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }));
 
     try {
+      const embeddingReady = await modelManager.ensureEmbeddingReady();
+      if (!embeddingReady) {
+        throw new Error(
+          'Embedding model is not ready. Download and load it in Settings to use chat.'
+        );
+      }
+
       // If we have selected meetings, search for relevant content first
       let sources: ChatSource[] = [];
       let answer: string;
@@ -112,6 +120,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         // Search across all selected meetings and choose the most relevant one for context.
         const searchResults = await searchInMeetings(content, selectedMeetingIds, 3);
         const meetingId = searchResults[0]?.meeting_id ?? selectedMeetingIds[0];
+        const llmReady = await modelManager.ensureLlmReady();
+        if (!llmReady) {
+          throw new Error(
+            'Language model is not ready. Download and load a model in Settings to use chat.'
+          );
+        }
         answer = await api.askMeetingQuestion(meetingId, content, history);
         sources = mapSearchResultsToSources(searchResults.slice(0, 8));
       } else {
@@ -119,6 +133,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         const searchResults = await api.semanticSearch(content, 5);
 
         if (searchResults.length > 0) {
+          const llmReady = await modelManager.ensureLlmReady();
+          if (!llmReady) {
+            throw new Error(
+              'Language model is not ready. Download and load a model in Settings to use chat.'
+            );
+          }
           // Use the first meeting for context
           answer = await api.askMeetingQuestion(
             searchResults[0].meeting_id,
@@ -197,6 +217,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     };
 
     try {
+      const embeddingReady = await modelManager.ensureEmbeddingReady();
+      if (!embeddingReady) {
+        throw new Error(
+          'Embedding model is not ready. Download and load it in Settings to use chat.'
+        );
+      }
+
       // Set up token listener
       unlisten = await api.onChatToken((event: ChatTokenEvent) => {
         if (event.stream_id !== streamId) return;
@@ -273,6 +300,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         return;
       }
 
+      const llmReady = await modelManager.ensureLlmReady();
+      if (!llmReady) {
+        throw new Error(
+          'Language model is not ready. Download and load a model in Settings to use chat.'
+        );
+      }
+
       // Start streaming (final completion handled by the `done` event)
       await api.streamMeetingQuestion(streamId, meetingId, content, history);
     } catch (e) {
@@ -318,17 +352,28 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }));
 
     try {
+      const llmReady = await modelManager.ensureLlmReady();
+      if (!llmReady) {
+        throw new Error(
+          'Language model is not ready. Download and load a model in Settings to ask questions.'
+        );
+      }
+
       const answer = await api.askMeetingQuestion(meetingId, question, history);
 
       // Get sources
-      const searchResults = await api.semanticSearch(question, 3, meetingId);
-      const sources: ChatSource[] = searchResults.map((r) => ({
-        meeting_id: r.meeting_id,
-        meeting_title: r.meeting_title,
-        excerpt: r.text,
-        start_ms: r.start_ms,
-        similarity: r.similarity,
-      }));
+      let sources: ChatSource[] = [];
+      const embeddingReady = await modelManager.ensureEmbeddingReady();
+      if (embeddingReady) {
+        const searchResults = await api.semanticSearch(question, 3, meetingId);
+        sources = searchResults.map((r) => ({
+          meeting_id: r.meeting_id,
+          meeting_title: r.meeting_title,
+          excerpt: r.text,
+          start_ms: r.start_ms,
+          similarity: r.similarity,
+        }));
+      }
 
       const assistantMessage: ChatMessage = {
         id: generateId(),
@@ -352,6 +397,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   searchMeetings: async (query) => {
     try {
+      const embeddingReady = await modelManager.ensureEmbeddingReady();
+      if (!embeddingReady) {
+        set({
+          error:
+            'Embedding model is not ready. Download and load it in Settings to search meetings.',
+        });
+        return [];
+      }
       return await api.semanticSearch(query, 10);
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
