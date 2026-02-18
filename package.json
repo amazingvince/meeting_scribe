@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "stage:onnx-runtime": "node scripts/stage-onnx-runtime.mjs",
-    "tauri": "pnpm stage:onnx-runtime && tauri",
+    "tauri": "node scripts/tauri-wrapper.mjs",
     "lint": "eslint src --max-warnings 0",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
   },

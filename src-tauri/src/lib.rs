@@ -87,13 +87,20 @@ fn onnx_dirs_near_executable(exe_path: &std::path::Path) -> Vec<PathBuf> {
     dirs.push(exe_dir.to_path_buf());
     dirs.push(exe_dir.join("resources"));
     dirs.push(exe_dir.join("resources/runtime"));
+    // Tauri may place resource folders under `Resources/resources/...` in app bundles.
+    dirs.push(exe_dir.join("resources/resources"));
+    dirs.push(exe_dir.join("resources/resources/runtime"));
     dirs.push(exe_dir.join("Resources"));
     dirs.push(exe_dir.join("Resources/runtime"));
+    dirs.push(exe_dir.join("Resources/resources"));
+    dirs.push(exe_dir.join("Resources/resources/runtime"));
     dirs.push(exe_dir.join("lib"));
 
     if let Some(parent) = exe_dir.parent() {
         dirs.push(parent.join("Resources"));
         dirs.push(parent.join("Resources/runtime"));
+        dirs.push(parent.join("Resources/resources"));
+        dirs.push(parent.join("Resources/resources/runtime"));
         dirs.push(parent.join("Frameworks"));
         dirs.push(parent.join("MacOS"));
         dirs.push(parent.join("lib"));
@@ -349,7 +356,7 @@ impl Default for AppConfig {
 mod tests {
     use super::{
         find_library_in_dirs, is_runtime_library_name, onnx_cellar_lib_dirs,
-        onnx_workspace_resource_dirs_from,
+        onnx_dirs_near_executable, onnx_workspace_resource_dirs_from,
     };
     use std::path::PathBuf;
 
@@ -435,6 +442,16 @@ mod tests {
             dirs[3],
             PathBuf::from("/tmp/project/src-tauri/resources/runtime")
         );
+    }
+
+    #[test]
+    fn executable_dirs_include_tauri_nested_resource_runtime() {
+        let exe = PathBuf::from("/Applications/Meeting Scribe.app/Contents/MacOS/meeting-scribe");
+        let dirs = onnx_dirs_near_executable(&exe);
+
+        assert!(dirs.contains(&PathBuf::from(
+            "/Applications/Meeting Scribe.app/Contents/Resources/resources/runtime"
+        )));
     }
 
     #[test]
