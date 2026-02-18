@@ -12,7 +12,11 @@ export function useChat() {
   const sendMessage = useCallback(
     async (content: string) => {
       if (!content.trim()) return;
-      await store.sendMessage(content);
+      if (store.streamingEnabled) {
+        await store.sendMessageWithStreaming(content);
+      } else {
+        await store.sendMessage(content);
+      }
     },
     [store]
   );
@@ -46,12 +50,14 @@ export function useChat() {
     isStreaming: store.isStreaming,
     error: store.error,
     selectedMeetingIds: store.selectedMeetingIds,
+    streamingEnabled: store.streamingEnabled,
 
     // Actions
     sendMessage,
     askAboutMeeting,
     searchMeetings,
     selectMeetings,
+    setStreamingEnabled: store.setStreamingEnabled,
     clearMessages: store.clearMessages,
     clearError: store.clearError,
   };
