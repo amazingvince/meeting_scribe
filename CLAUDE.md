@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Meeting Scribe is a **privacy-first desktop application** for recording, transcribing, summarizing, and searching meeting content. All processing happens locally using open-source models.
 
 **Stack:** Rust + Tauri v2 + React + TypeScript
-**Target Platforms:** Windows (primary), macOS, Linux
-**Status:** Core functionality complete (Phases 1-7), UI and RAG in progress
+**Target Platforms:** Windows, macOS, Linux
+**Status:** Production app with active UI/UX and reliability iteration
 
 ## Build Commands
 
@@ -55,7 +55,7 @@ cd src-tauri && cargo fmt
 │  │   ├── Meeting/     MeetingView, TranscriptPanel, etc.     │
 │  │   ├── Settings/    SettingsView, ModelSettings, Storage   │
 │  │   └── ui/          Button, Card, Modal, Badge, etc.       │
-│  ├── hooks/           useMeetings, useModels, useRecording   │
+│  ├── hooks/           useMeetings, useModels, useChat         │
 │  ├── stores/          Zustand stores (settings, toast)       │
 │  ├── lib/tauri.ts     Typed IPC command wrappers             │
 │  └── types/           TypeScript type definitions            │
@@ -68,7 +68,7 @@ cd src-tauri && cargo fmt
 │  │   ├── buffer.rs    Ring buffer management                 │
 │  │   ├── vad.rs       Silero VAD v5                         │
 │  │   ├── denoise.rs   nnnoiseless (RNNoise)                 │
-│  │   └── platform/    WASAPI/ScreenCaptureKit/PipeWire      │
+│  │   └── platform/    WASAPI/CoreAudio/PipeWire              │
 │  ├── inference/       ML model inference                     │
 │  │   ├── transcription.rs  transcribe-rs (Parakeet/Whisper) │
 │  │   ├── embedding.rs      ONNX + EmbeddingGemma            │
@@ -132,16 +132,16 @@ VAD_CHUNK_SIZE_16K: 512  // Only valid size for 16kHz
 ## Data Storage
 
 ```
-~/.meeting-scribe/
+<platform data dir>/meeting-scribe/
 ├── data/
 │   ├── meetings.db           # SQLite
 │   └── vectors/              # LanceDB
 ├── audio/{meeting_id}/
-│   ├── you.wav / you.opus
-│   └── others.wav / others.opus
+│   ├── you.wav
+│   ├── you_clean.wav
+│   └── others.wav
 ├── models/
-│   ├── parakeet/
-│   ├── whisper/
+│   ├── transcription/
 │   ├── embedding/
 │   └── llm/
 └── cache/
@@ -152,7 +152,7 @@ VAD_CHUNK_SIZE_16K: 512  // Only valid size for 16kHz
 | Platform | Mic | System Audio Loopback |
 |----------|-----|----------------------|
 | Windows | cpal | WASAPI loopback |
-| macOS | cpal | ScreenCaptureKit (cidre crate) |
+| macOS | cpal | CoreAudio Process Tap + loopback fallback |
 | Linux | cpal | PipeWire/PulseAudio monitor |
 
 ## Tauri v2 IPC Conventions
@@ -225,7 +225,12 @@ export function useModels() {
 
   // Subscribe to Tauri events
   useTauriEvent<DownloadProgressEvent>('model-download-progress', (data) => {
-    store.setDownloadProgress(data.percent, data.model_id);
+    store.setDownloadProgress({
+      progress: data.percent,
+      sourceModelId: data.model_id,
+      stage: data.stage,
+      message: data.message,
+    });
   });
 
   // Auto-refresh on mount
@@ -243,20 +248,10 @@ export function useModels() {
 - `src/components/{Feature}/` - Feature-specific components with index.ts exports
 - Each feature folder has: View component, sub-components, index.ts
 
-## Development Phases
+## Planning Docs
 
-The `plan/` directory contains sequential implementation guides:
-1. `01-project-setup.md` - Scaffolding ✅
-2. `02-audio-capture.md` - cpal + platform loopback ✅
-3. `03-audio-preprocessing.md` - VAD, denoising, resampling ✅
-4. `04-transcription-engine.md` - transcribe-rs integration ✅
-5. `05-storage-layer.md` - SQLite + LanceDB ✅
-6. `06-embedding-engine.md` - ONNX embeddings ✅
-7. `07-llm-engine.md` - llama-cpp-2 ✅
-8. `08-frontend-ui.md` - React components (in progress)
-9. `09-rag-implementation.md` - Vector search + chat
-10. `10-cross-platform.md` - macOS/Linux support
-11. `11-deployment.md` - Build optimization, installers
+The `plan/` directory contains implementation notes and historical sequencing docs.
+Treat these as reference material, not an exact reflection of current runtime behavior.
 
 ## Common Issues
 

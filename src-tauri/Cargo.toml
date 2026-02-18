@@ -1,10 +1,14 @@
 [package]
 name = "meeting-scribe"
-version = "0.2.0"
+version = "0.2.1"
 description = "Local-first meeting transcription and RAG"
 authors = ["Meeting Scribe"]
 edition = "2021"
 rust-version = "1.75"
+
+[package.metadata.cargo-machete]
+# build.rs uses tauri-build directly; machete can miss build-dependencies.
+ignored = ["tauri-build"]
 
 [lib]
 name = "meeting_scribe_lib"
@@ -26,7 +30,6 @@ tauri-plugin-fs = "2"
 # ASYNC RUNTIME
 # ============================================
 tokio = { version = "1", features = ["full"] }
-futures = "0.3"
 
 # ============================================
 # SERIALIZATION
@@ -94,7 +97,6 @@ futures-util = "0.3"
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1"
-thiserror = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 parking_lot = "0.12"
@@ -113,13 +115,6 @@ zip = "2"                        # Zip archive extraction
 # ============================================
 # PLATFORM-SPECIFIC
 # ============================================
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = [
-    "Win32_Media_Audio",
-    "Win32_System_Com",
-    "Win32_Foundation"
-] }
-
 [target.'cfg(target_os = "macos")'.dependencies]
 # cidre = "0.4"                  # ScreenCaptureKit (added in step 10)
 

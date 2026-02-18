@@ -148,6 +148,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_SIGNING_IDENTITY: "-"
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Meeting Scribe ${{ github.ref_name }}
@@ -157,6 +158,36 @@ jobs:
           prerelease: false
           tauriScript: pnpm tauri
           args: --target ${{ matrix.target }}
+
+      - name: Verify macOS bundle payload
+        if: matrix.target == 'aarch64-apple-darwin'
+        run: |
+          set -euo pipefail
+
+          bundle_dir="src-tauri/target/${{ matrix.target }}/release/bundle"
+          app_path="$bundle_dir/macos/Meeting Scribe.app"
+          dmg_path="$(ls "$bundle_dir"/dmg/*.dmg | head -n 1)"
+
+          test -d "$app_path"
+          test -f "$dmg_path"
+
+          codesign --verify --deep --strict --verbose=2 "$app_path"
+
+          app_runtime="$(find "$app_path/Contents/Resources/resources/runtime" -maxdepth 1 -type f -name 'libonnxruntime*.dylib' | head -n 1)"
+          test -n "$app_runtime"
+          echo "App runtime: $app_runtime"
+
+          mount_point="$(mktemp -d /tmp/meeting-scribe-dmg.XXXXXX)"
+          trap 'hdiutil detach "$mount_point" >/dev/null 2>&1 || true; rm -rf "$mount_point"' EXIT
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount_point" "$dmg_path" >/dev/null
+
+          dmg_app="$mount_point/Meeting Scribe.app"
+          test -d "$dmg_app"
+          codesign --verify --deep --strict --verbose=2 "$dmg_app"
+
+          dmg_runtime="$(find "$dmg_app/Contents/Resources/resources/runtime" -maxdepth 1 -type f -name 'libonnxruntime*.dylib' | head -n 1)"
+          test -n "$dmg_runtime"
+          echo "DMG runtime: $dmg_runtime"
 
       - name: Verify Linux bundle payload
         if: matrix.target == 'x86_64-unknown-linux-gnu'

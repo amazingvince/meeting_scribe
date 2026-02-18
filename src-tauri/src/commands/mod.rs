@@ -16,10 +16,10 @@ pub use recording::{
 
 // Re-export transcription commands
 pub use transcription::{
-    download_transcription_model, get_model_status, get_models_dir, get_transcription_config,
-    get_live_transcription_preview, init_transcription, is_model_downloaded,
-    is_transcription_ready, process_meeting, start_meeting_processing, transcribe_file,
-    unload_transcription, DownloadProgressEvent, LivePreviewOptions, LiveTranscriptPreview,
+    download_transcription_model, get_live_transcription_preview, get_model_status, get_models_dir,
+    get_transcription_config, init_transcription, is_model_downloaded, is_transcription_ready,
+    process_meeting, start_meeting_processing, transcribe_file, unload_transcription,
+    DownloadProgressEvent, LivePreviewOptions, LiveTranscriptPreview,
     MeetingProcessingFinishedEvent, ModelStatusItem, ModelStatusResponse, SharedModelManager,
     SharedTranscriptionService,
 };
@@ -46,8 +46,9 @@ pub use embedding::{
 pub use llm::{
     ask_meeting_question, count_tokens, download_llm, extract_action_items, generate_meeting_title,
     generate_summary, generate_text, get_llm_status, initialize_llm, is_llm_model_downloaded,
-    list_llm_models, load_llm_model, stream_meeting_question, unload_llm_model, ChatTokenEvent,
-    LlmModelInfo, LlmStatus, SharedLlmService,
+    list_llm_models, load_llm_model, start_summary_generation, stream_meeting_question,
+    unload_llm_model, ChatTokenEvent, LlmModelInfo, LlmStatus, SharedLlmService,
+    SummaryGenerationFinishedEvent, SummaryGenerationProgressEvent,
 };
 
 /// Basic greeting command for testing IPC

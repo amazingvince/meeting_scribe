@@ -625,6 +625,38 @@ export async function generateSummary(meetingId: string): Promise<string> {
   return invoke<string>('generate_summary', { meetingId });
 }
 
+export type BackgroundSummaryType = 'full' | 'action_items';
+
+/** Summary generation progress event */
+export interface SummaryGenerationProgressEvent {
+  meeting_id: string;
+  summary_type: BackgroundSummaryType;
+  stage: string;
+  percent: number;
+  message: string;
+}
+
+/** Summary generation completion event */
+export interface SummaryGenerationFinishedEvent {
+  meeting_id: string;
+  summary_type: BackgroundSummaryType;
+  success: boolean;
+  summary?: string | null;
+  action_items?: ActionItem[] | null;
+  error_message?: string | null;
+}
+
+/** Start summary or action-item generation in the background */
+export async function startSummaryGeneration(
+  meetingId: string,
+  summaryType: BackgroundSummaryType
+): Promise<void> {
+  return invoke<void>('start_summary_generation', {
+    meetingId,
+    summaryType,
+  });
+}
+
 /** Extract action items from a meeting */
 export async function extractActionItems(
   meetingId: string
@@ -832,6 +864,30 @@ export function onMeetingProcessingFinished(
 ): Promise<UnlistenFn> {
   return listen<MeetingProcessingFinishedEvent>(
     'meeting-processing-finished',
+    (event) => {
+      callback(event.payload);
+    }
+  );
+}
+
+/** Listen for summary generation progress */
+export function onSummaryGenerationProgress(
+  callback: (data: SummaryGenerationProgressEvent) => void
+): Promise<UnlistenFn> {
+  return listen<SummaryGenerationProgressEvent>(
+    'summary-generation-progress',
+    (event) => {
+      callback(event.payload);
+    }
+  );
+}
+
+/** Listen for summary generation completion */
+export function onSummaryGenerationFinished(
+  callback: (data: SummaryGenerationFinishedEvent) => void
+): Promise<UnlistenFn> {
+  return listen<SummaryGenerationFinishedEvent>(
+    'summary-generation-finished',
     (event) => {
       callback(event.payload);
     }

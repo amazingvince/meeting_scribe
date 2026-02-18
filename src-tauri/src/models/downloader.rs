@@ -3,7 +3,7 @@
 //! Downloads models from remote URLs with progress events for UI feedback.
 
 use anyhow::{Context, Result};
-use futures::StreamExt;
+use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::io::Write;

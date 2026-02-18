@@ -5,11 +5,12 @@
 use crate::inference::llm::{GenerationConfig, LlmService};
 use crate::inference::summarization::{ActionItem, SummarizationService};
 use crate::models::{delete_llm_model, download_llm_model, is_llm_downloaded, LlmModel};
+use crate::storage::models::SummaryType as StorageSummaryType;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
-use tracing::info;
+use tracing::{error, info, warn};
 
 use super::SharedStorageState;
 
@@ -49,6 +50,57 @@ pub struct ChatHistoryMessage {
     pub role: String,
     /// Message content
     pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SummaryGenerationProgressEvent {
+    pub meeting_id: String,
+    pub summary_type: String,
+    pub stage: String,
+    pub percent: f32,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SummaryGenerationFinishedEvent {
+    pub meeting_id: String,
+    pub summary_type: String,
+    pub success: bool,
+    pub summary: Option<String>,
+    pub action_items: Option<Vec<ActionItem>>,
+    pub error_message: Option<String>,
+}
+
+enum GeneratedSummaryPayload {
+    Full(String),
+    ActionItems(Vec<ActionItem>),
+}
+
+impl GeneratedSummaryPayload {
+    fn into_content_for_storage(
+        self,
+    ) -> Result<(String, Option<String>, Option<Vec<ActionItem>>), String> {
+        match self {
+            Self::Full(summary) => Ok((summary.clone(), Some(summary), None)),
+            Self::ActionItems(items) => {
+                let serialized = serde_json::to_string(&items)
+                    .map_err(|e| format!("Failed to serialize action items: {}", e))?;
+                Ok((serialized, None, Some(items)))
+            }
+        }
+    }
+}
+
+fn emit_summary_progress(app: &AppHandle, event: SummaryGenerationProgressEvent) {
+    if let Err(e) = app.emit("summary-generation-progress", &event) {
+        warn!("Failed to emit summary-generation-progress event: {}", e);
+    }
+}
+
+fn emit_summary_finished(app: &AppHandle, event: SummaryGenerationFinishedEvent) {
+    if let Err(e) = app.emit("summary-generation-finished", &event) {
+        warn!("Failed to emit summary-generation-finished event: {}", e);
+    }
 }
 
 /// Initialize the LLM service (downloads model if needed)
@@ -233,6 +285,235 @@ pub fn generate_summary(
     summarizer
         .summarize(&transcript)
         .map_err(|e| format!("Failed to generate summary: {}", e))
+}
+
+/// Start generating a summary in the background and return immediately.
+///
+/// Emits progress on `summary-generation-progress` and completion/failure on
+/// `summary-generation-finished`.
+#[tauri::command]
+pub async fn start_summary_generation(
+    app: AppHandle,
+    llm: tauri::State<'_, SharedLlmService>,
+    storage: tauri::State<'_, SharedStorageState>,
+    meeting_id: String,
+    summary_type: String,
+) -> Result<(), String> {
+    let summary_type: StorageSummaryType = summary_type
+        .parse()
+        .map_err(|e: anyhow::Error| e.to_string())?;
+
+    if !matches!(
+        summary_type,
+        StorageSummaryType::Full | StorageSummaryType::ActionItems
+    ) {
+        return Err(
+            "Only 'full' and 'action_items' background generation are supported".to_string(),
+        );
+    }
+
+    let llm_state = llm.inner().clone();
+    let storage_state = storage.inner().clone();
+    let summary_type_name = summary_type.as_str().to_string();
+    let meeting_for_task = meeting_id.clone();
+
+    emit_summary_progress(
+        &app,
+        SummaryGenerationProgressEvent {
+            meeting_id: meeting_id.clone(),
+            summary_type: summary_type_name.clone(),
+            stage: "Queued".to_string(),
+            percent: 0.0,
+            message: "Queued for background generation".to_string(),
+        },
+    );
+
+    let app_for_task = app.clone();
+    tokio::spawn(async move {
+        emit_summary_progress(
+            &app_for_task,
+            SummaryGenerationProgressEvent {
+                meeting_id: meeting_for_task.clone(),
+                summary_type: summary_type_name.clone(),
+                stage: "Generating".to_string(),
+                percent: 55.0,
+                message: "Generating content".to_string(),
+            },
+        );
+
+        let generation_result = tokio::task::spawn_blocking({
+            let llm_worker = llm_state.clone();
+            let storage_worker = storage_state.clone();
+            let meeting_worker = meeting_for_task.clone();
+
+            move || -> Result<(GeneratedSummaryPayload, Option<String>), String> {
+                let transcript = {
+                    let storage_guard = storage_worker.lock();
+                    let repos = storage_guard.repositories();
+                    repos
+                        .transcripts
+                        .get_full_text(&meeting_worker)
+                        .map_err(|e| format!("Failed to get transcript: {}", e))?
+                };
+
+                if transcript.trim().is_empty() {
+                    return Err("No transcript available for this meeting".to_string());
+                }
+
+                let (generated, model_used) = {
+                    let service = llm_worker.lock();
+                    if !service.is_loaded() {
+                        return Err("Language model is not initialized".to_string());
+                    }
+
+                    let summarizer = SummarizationService::new(&service);
+                    let model_used = service.current_model().map(|model| model.to_string());
+
+                    let generated = match summary_type {
+                        StorageSummaryType::Full => GeneratedSummaryPayload::Full(
+                            summarizer
+                                .summarize(&transcript)
+                                .map_err(|e| format!("Failed to generate summary: {}", e))?,
+                        ),
+                        StorageSummaryType::ActionItems => GeneratedSummaryPayload::ActionItems(
+                            summarizer
+                                .extract_action_items(&transcript)
+                                .map_err(|e| format!("Failed to extract action items: {}", e))?,
+                        ),
+                        _ => {
+                            return Err(
+                                "Unsupported summary type for background generation".to_string()
+                            )
+                        }
+                    };
+
+                    (generated, model_used)
+                };
+
+                Ok((generated, model_used))
+            }
+        })
+        .await;
+
+        let (generated, model_used) = match generation_result {
+            Ok(Ok(payload)) => payload,
+            Ok(Err(err_msg)) => {
+                emit_summary_finished(
+                    &app_for_task,
+                    SummaryGenerationFinishedEvent {
+                        meeting_id: meeting_for_task,
+                        summary_type: summary_type_name,
+                        success: false,
+                        summary: None,
+                        action_items: None,
+                        error_message: Some(err_msg),
+                    },
+                );
+                return;
+            }
+            Err(join_err) => {
+                let err_msg = format!("Background summary task failed: {}", join_err);
+                error!("{}", err_msg);
+                emit_summary_finished(
+                    &app_for_task,
+                    SummaryGenerationFinishedEvent {
+                        meeting_id: meeting_for_task,
+                        summary_type: summary_type_name,
+                        success: false,
+                        summary: None,
+                        action_items: None,
+                        error_message: Some(err_msg),
+                    },
+                );
+                return;
+            }
+        };
+
+        emit_summary_progress(
+            &app_for_task,
+            SummaryGenerationProgressEvent {
+                meeting_id: meeting_for_task.clone(),
+                summary_type: summary_type_name.clone(),
+                stage: "Saving".to_string(),
+                percent: 90.0,
+                message: "Saving generated content".to_string(),
+            },
+        );
+
+        let (content_to_store, summary, action_items) = match generated.into_content_for_storage() {
+            Ok(parts) => parts,
+            Err(err_msg) => {
+                emit_summary_finished(
+                    &app_for_task,
+                    SummaryGenerationFinishedEvent {
+                        meeting_id: meeting_for_task,
+                        summary_type: summary_type_name,
+                        success: false,
+                        summary: None,
+                        action_items: None,
+                        error_message: Some(err_msg),
+                    },
+                );
+                return;
+            }
+        };
+
+        let save_result = {
+            let storage_guard = storage_state.lock();
+            let repos = storage_guard.repositories();
+            repos
+                .summaries
+                .upsert(
+                    &meeting_for_task,
+                    summary_type,
+                    &content_to_store,
+                    model_used.as_deref(),
+                )
+                .map(|_| ())
+                .map_err(|e| format!("Failed to save summary: {}", e))
+        };
+
+        match save_result {
+            Ok(()) => {
+                emit_summary_progress(
+                    &app_for_task,
+                    SummaryGenerationProgressEvent {
+                        meeting_id: meeting_for_task.clone(),
+                        summary_type: summary_type_name.clone(),
+                        stage: "Complete".to_string(),
+                        percent: 100.0,
+                        message: "Summary generation complete".to_string(),
+                    },
+                );
+                emit_summary_finished(
+                    &app_for_task,
+                    SummaryGenerationFinishedEvent {
+                        meeting_id: meeting_for_task,
+                        summary_type: summary_type_name,
+                        success: true,
+                        summary,
+                        action_items,
+                        error_message: None,
+                    },
+                );
+            }
+            Err(err_msg) => {
+                emit_summary_finished(
+                    &app_for_task,
+                    SummaryGenerationFinishedEvent {
+                        meeting_id: meeting_for_task,
+                        summary_type: summary_type_name,
+                        success: false,
+                        summary: None,
+                        action_items: None,
+                        error_message: Some(err_msg),
+                    },
+                );
+            }
+        }
+    });
+
+    Ok(())
 }
 
 /// Extract action items from a meeting

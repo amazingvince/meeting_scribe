@@ -7,6 +7,8 @@ import type {
   BatchEmbedProgress,
   DownloadProgressEvent,
   MeetingProcessingProgressEvent,
+  SummaryGenerationFinishedEvent,
+  SummaryGenerationProgressEvent,
 } from '../../lib/tauri';
 import type {
   EmbeddingDownloadProgress,
@@ -42,6 +44,15 @@ interface TimedBatchEmbedTask {
   updatedAt: number;
 }
 
+interface TimedSummaryTask {
+  meetingId: string;
+  summaryType: 'full' | 'action_items';
+  stage: string;
+  percent: number;
+  message: string;
+  updatedAt: number;
+}
+
 function meetingStageLabel(stage: string): string {
   switch (stage) {
     case 'TranscribingMic':
@@ -63,10 +74,12 @@ export function BackgroundTaskPill() {
   const navigate = useNavigate();
   const fetchMeetings = useMeetingsStore((state) => state.fetchMeetings);
   const [meetingTask, setMeetingTask] = useState<TimedMeetingTask | null>(null);
+  const [summaryTask, setSummaryTask] = useState<TimedSummaryTask | null>(null);
   const [downloadTask, setDownloadTask] = useState<TimedDownloadTask | null>(null);
   const [batchEmbedTask, setBatchEmbedTask] = useState<TimedBatchEmbedTask | null>(null);
 
   const clearMeetingTimerRef = useRef<number | null>(null);
+  const clearSummaryTimerRef = useRef<number | null>(null);
   const clearDownloadTimerRef = useRef<number | null>(null);
 
   const scheduleMeetingClear = (delayMs: number) => {
@@ -89,10 +102,23 @@ export function BackgroundTaskPill() {
     }, delayMs);
   };
 
+  const scheduleSummaryClear = (delayMs: number) => {
+    if (clearSummaryTimerRef.current !== null) {
+      window.clearTimeout(clearSummaryTimerRef.current);
+    }
+    clearSummaryTimerRef.current = window.setTimeout(() => {
+      setSummaryTask(null);
+      clearSummaryTimerRef.current = null;
+    }, delayMs);
+  };
+
   useEffect(() => {
     return () => {
       if (clearMeetingTimerRef.current !== null) {
         window.clearTimeout(clearMeetingTimerRef.current);
+      }
+      if (clearSummaryTimerRef.current !== null) {
+        window.clearTimeout(clearSummaryTimerRef.current);
       }
       if (clearDownloadTimerRef.current !== null) {
         window.clearTimeout(clearDownloadTimerRef.current);
@@ -104,6 +130,9 @@ export function BackgroundTaskPill() {
     const staleCheckId = window.setInterval(() => {
       const now = Date.now();
       setMeetingTask((current) =>
+        current && now - current.updatedAt > 30000 ? null : current
+      );
+      setSummaryTask((current) =>
         current && now - current.updatedAt > 30000 ? null : current
       );
       setDownloadTask((current) =>
@@ -137,6 +166,48 @@ export function BackgroundTaskPill() {
         window.clearTimeout(clearMeetingTimerRef.current);
         clearMeetingTimerRef.current = null;
       }
+    }
+  );
+
+  useTauriEvent<SummaryGenerationProgressEvent>(
+    'summary-generation-progress',
+    (event) => {
+      const summaryType = event.summary_type === 'action_items' ? 'action_items' : 'full';
+      setSummaryTask({
+        meetingId: event.meeting_id,
+        summaryType,
+        stage: event.stage,
+        percent: event.percent,
+        message: event.message,
+        updatedAt: Date.now(),
+      });
+
+      if (event.percent >= 100 || event.stage === 'Complete') {
+        scheduleSummaryClear(1800);
+      } else if (clearSummaryTimerRef.current !== null) {
+        window.clearTimeout(clearSummaryTimerRef.current);
+        clearSummaryTimerRef.current = null;
+      }
+    }
+  );
+
+  useTauriEvent<SummaryGenerationFinishedEvent>(
+    'summary-generation-finished',
+    (event) => {
+      const summaryType = event.summary_type === 'action_items' ? 'action_items' : 'full';
+      setSummaryTask({
+        meetingId: event.meeting_id,
+        summaryType,
+        stage: event.success ? 'Complete' : 'Failed',
+        percent: 100,
+        message: event.success
+          ? summaryType === 'action_items'
+            ? 'Action items ready'
+            : 'Summary ready'
+          : event.error_message || 'Summary generation failed',
+        updatedAt: Date.now(),
+      });
+      scheduleSummaryClear(event.success ? 1800 : 4500);
     }
   );
 
@@ -234,6 +305,17 @@ export function BackgroundTaskPill() {
       };
     }
 
+    if (summaryTask) {
+      return {
+        kind: 'summary' as const,
+        title: summaryTask.summaryType === 'action_items' ? 'Action Items' : 'Summary',
+        subtitle: summaryTask.message,
+        percent: Math.round(summaryTask.percent),
+        action: () => navigate(`/meeting/${summaryTask.meetingId}`),
+        icon: <Sparkles className="w-4 h-4" />,
+      };
+    }
+
     if (downloadTask) {
       return {
         kind: 'download' as const,
@@ -264,7 +346,7 @@ export function BackgroundTaskPill() {
     }
 
     return null;
-  }, [batchEmbedTask, downloadTask, meetingTask, navigate]);
+  }, [batchEmbedTask, downloadTask, meetingTask, navigate, summaryTask]);
 
   if (!activeTask) {
     return null;

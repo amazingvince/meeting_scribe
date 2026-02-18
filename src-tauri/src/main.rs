@@ -148,6 +148,7 @@ async fn main() {
             commands::llm::delete_llm,
             commands::llm::list_llm_models,
             commands::llm::generate_summary,
+            commands::llm::start_summary_generation,
             commands::llm::extract_action_items,
             commands::llm::generate_meeting_title,
             commands::llm::ask_meeting_question,

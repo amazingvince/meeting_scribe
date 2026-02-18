@@ -9,6 +9,7 @@ import type { ActionItem } from '../../types';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { SkeletonText } from '../ui/Skeleton';
+import { useTauriEvent } from '../../hooks';
 import * as api from '../../lib/tauri';
 import { useToastStore, useSettingsStore } from '../../stores';
 
@@ -33,6 +34,8 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
     // Reset panel state when meeting context changes so stale data never carries over.
     setSummary(null);
     setActionItems([]);
+    setIsLoadingSummary(false);
+    setIsLoadingActions(false);
     setSummaryStatus(null);
     setActionsStatus(null);
 
@@ -69,6 +72,92 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
     }
   }, [meetingId, hasTranscript]);
 
+  useTauriEvent<api.SummaryGenerationProgressEvent>(
+    'summary-generation-progress',
+    (event) => {
+      if (event.meeting_id !== meetingId) return;
+
+      if (event.summary_type === 'full') {
+        setIsLoadingSummary(true);
+        setSummaryStatus(event.message || 'Generating summary...');
+      } else if (event.summary_type === 'action_items') {
+        setIsLoadingActions(true);
+        setActionsStatus(event.message || 'Extracting action items...');
+      }
+    }
+  );
+
+  useTauriEvent<api.SummaryGenerationFinishedEvent>(
+    'summary-generation-finished',
+    (event) => {
+      if (event.meeting_id !== meetingId) return;
+
+      if (event.summary_type === 'full') {
+        setIsLoadingSummary(false);
+        setSummaryStatus(null);
+
+        if (event.success) {
+          const nextSummary = event.summary?.trim() ?? '';
+          if (nextSummary.length > 0) {
+            setSummary(nextSummary);
+            toast.success('Summary generated');
+          } else {
+            void (async () => {
+              const savedSummary = await api.getSummary(meetingId, 'full');
+              if (savedSummary?.content) {
+                setSummary(savedSummary.content);
+              }
+              toast.success('Summary generated');
+            })();
+          }
+        } else {
+          toast.error(
+            'Failed to generate summary',
+            event.error_message ?? 'Background summary generation failed.'
+          );
+        }
+        return;
+      }
+
+      if (event.summary_type === 'action_items') {
+        setIsLoadingActions(false);
+        setActionsStatus(null);
+
+        if (event.success) {
+          if (event.action_items && event.action_items.length > 0) {
+            setActionItems(event.action_items);
+            toast.success(`Found ${event.action_items.length} action items`);
+          } else if (event.action_items) {
+            setActionItems([]);
+            toast.success('No action items found');
+          } else {
+            void (async () => {
+              const savedActions = await api.getSummary(meetingId, 'action_items');
+              if (savedActions?.content) {
+                try {
+                  const parsed = JSON.parse(savedActions.content) as ActionItem[];
+                  setActionItems(parsed);
+                  toast.success(`Found ${parsed.length} action items`);
+                } catch {
+                  setActionItems([]);
+                  toast.success('Action items extracted');
+                }
+              } else {
+                setActionItems([]);
+                toast.success('Action items extracted');
+              }
+            })();
+          }
+        } else {
+          toast.error(
+            'Failed to extract action items',
+            event.error_message ?? 'Background action-item extraction failed.'
+          );
+        }
+      }
+    }
+  );
+
   const generateSummary = useCallback(async () => {
     setIsLoadingSummary(true);
     setSummaryStatus('Checking language model...');
@@ -86,33 +175,21 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
           'LLM not available',
           'Download a language model in Settings to generate summaries.'
         );
+        setIsLoadingSummary(false);
         setSummaryStatus('Language model unavailable.');
         return;
       }
 
-      // Generate the summary via LLM
-      setSummaryStatus('Generating summary...');
-      const result = await api.generateSummary(meetingId);
-      setSummary(result);
-
-      // Save the summary for persistence
-      setSummaryStatus('Saving summary...');
-      await api.saveSummary(
-        meetingId,
-        'full',
-        result,
-        settings.llmStatus?.current_model ?? undefined
-      );
-
-      toast.success('Summary generated and saved');
+      setSummaryStatus('Queued for background generation...');
+      await api.startSummaryGeneration(meetingId, 'full');
+      toast.info('Summary generation started', 'You can continue using the app while this runs.');
     } catch (e) {
+      setIsLoadingSummary(false);
+      setSummaryStatus(null);
       toast.error(
         'Failed to generate summary',
         e instanceof Error ? e.message : String(e)
       );
-    } finally {
-      setIsLoadingSummary(false);
-      setSummaryStatus(null);
     }
   }, [meetingId, settings, toast]);
 
@@ -133,33 +210,24 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
           'LLM not available',
           'Download a language model in Settings to extract action items.'
         );
+        setIsLoadingActions(false);
         setActionsStatus('Language model unavailable.');
         return;
       }
 
-      // Extract action items via LLM
-      setActionsStatus('Extracting action items...');
-      const result = await api.extractActionItems(meetingId);
-      setActionItems(result);
-
-      // Save action items as JSON for persistence
-      setActionsStatus('Saving action items...');
-      await api.saveSummary(
-        meetingId,
-        'action_items',
-        JSON.stringify(result),
-        settings.llmStatus?.current_model ?? undefined
+      setActionsStatus('Queued for background extraction...');
+      await api.startSummaryGeneration(meetingId, 'action_items');
+      toast.info(
+        'Action-item extraction started',
+        'You can continue using the app while this runs.'
       );
-
-      toast.success(`Found ${result.length} action items`);
     } catch (e) {
+      setIsLoadingActions(false);
+      setActionsStatus(null);
       toast.error(
         'Failed to extract action items',
         e instanceof Error ? e.message : String(e)
       );
-    } finally {
-      setIsLoadingActions(false);
-      setActionsStatus(null);
     }
   }, [meetingId, settings, toast]);
 
@@ -214,7 +282,7 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
             size="sm"
             onClick={generateSummary}
             isLoading={isLoadingSummary}
-            disabled={isLoadingActions}
+            disabled={isLoadingSummary}
           >
             {summary ? (
               <>
@@ -258,7 +326,7 @@ export function SummaryPanel({ meetingId, hasTranscript }: SummaryPanelProps) {
             size="sm"
             onClick={extractActionItems}
             isLoading={isLoadingActions}
-            disabled={isLoadingSummary}
+            disabled={isLoadingActions}
           >
             {actionItems.length > 0 ? (
               <>

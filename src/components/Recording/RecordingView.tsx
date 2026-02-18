@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { FileText, NotebookPen } from "lucide-react";
@@ -28,6 +28,17 @@ interface ChannelMetrics {
   speech_probability: number | null;
 }
 
+interface MeterNormalizerState {
+  floor: number;
+  ceiling: number;
+  activeUntilMs: number;
+}
+
+interface MeterDisplay {
+  metrics: ChannelMetrics;
+  streaming: boolean;
+}
+
 interface WaveformUpdate {
   timestamp_ms: number;
   mic: ChannelMetrics;
@@ -52,6 +63,107 @@ const EMPTY_SAMPLES = new Array(64).fill(0);
 const LIVE_PREVIEW_STABILIZATION_MS = 2800;
 const MAX_RENDERED_TRANSCRIPT_SEGMENTS = 300;
 const MAX_COMMITTED_TRANSCRIPT_SEGMENTS = 1800;
+const METER_ACTIVITY_HOLD_MS = 900;
+const METER_MIN_VISUAL_LEVEL = 0.02;
+const METER_RAW_ACTIVITY_THRESHOLD = 0.00028;
+const METER_INITIAL_FLOOR = 0.00005;
+const METER_INITIAL_CEILING = 0.012;
+const METER_MIN_DYNAMIC_SPAN = 0.006;
+
+function clamp01(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+function createMeterNormalizerState(): MeterNormalizerState {
+  return {
+    floor: METER_INITIAL_FLOOR,
+    ceiling: METER_INITIAL_CEILING,
+    activeUntilMs: 0,
+  };
+}
+
+function resetMeterNormalizerState(state: MeterNormalizerState): void {
+  state.floor = METER_INITIAL_FLOOR;
+  state.ceiling = METER_INITIAL_CEILING;
+  state.activeUntilMs = 0;
+}
+
+function normalizeAmplitude(value: number, state: MeterNormalizerState): number {
+  const span = Math.max(METER_MIN_DYNAMIC_SPAN, state.ceiling - state.floor);
+  const normalized = clamp01((value - state.floor) / span);
+  const boosted = 1 - Math.exp(-normalized * 3.2);
+  return clamp01(Math.pow(boosted, 0.82));
+}
+
+function buildMeterDisplay(
+  metrics: ChannelMetrics,
+  state: MeterNormalizerState,
+  isRecording: boolean,
+  nowMs: number
+): MeterDisplay {
+  if (!isRecording) {
+    resetMeterNormalizerState(state);
+    return {
+      metrics: {
+        ...metrics,
+        rms: 0,
+        peak: 0,
+        samples: EMPTY_SAMPLES,
+      },
+      streaming: false,
+    };
+  }
+
+  const sourcePeak = metrics.samples.reduce(
+    (max, sample) => Math.max(max, Math.abs(sample)),
+    Math.abs(metrics.peak)
+  );
+  const sourceLevel = Math.max(Math.abs(metrics.rms), sourcePeak * 0.82);
+
+  const floorMix = sourceLevel <= state.floor ? 0.14 : 0.02;
+  state.floor = Math.max(
+    METER_INITIAL_FLOOR,
+    state.floor * (1 - floorMix) + sourceLevel * floorMix
+  );
+
+  const desiredCeiling = Math.max(
+    sourcePeak * 1.25,
+    state.floor + METER_MIN_DYNAMIC_SPAN,
+    METER_INITIAL_CEILING
+  );
+  state.ceiling = Math.max(desiredCeiling, state.ceiling * 0.97);
+  state.ceiling = Math.min(1, Math.max(state.ceiling, state.floor + METER_MIN_DYNAMIC_SPAN));
+
+  const normalizedSamples = metrics.samples.map((sample) => {
+    const level = normalizeAmplitude(Math.abs(sample), state);
+    if (level <= 0) return 0;
+    return Math.max(METER_MIN_VISUAL_LEVEL, level);
+  });
+
+  const normalizedRms = normalizeAmplitude(Math.abs(metrics.rms), state);
+  const normalizedPeak = normalizeAmplitude(sourcePeak, state);
+
+  const activityNow =
+    sourcePeak >= METER_RAW_ACTIVITY_THRESHOLD ||
+    sourceLevel >= METER_RAW_ACTIVITY_THRESHOLD ||
+    normalizedPeak >= 0.06;
+
+  if (activityNow) {
+    state.activeUntilMs = nowMs + METER_ACTIVITY_HOLD_MS;
+  }
+
+  const streaming = activityNow || nowMs < state.activeUntilMs;
+
+  return {
+    metrics: {
+      ...metrics,
+      rms: streaming ? Math.max(METER_MIN_VISUAL_LEVEL, normalizedRms) : normalizedRms,
+      peak: normalizedPeak,
+      samples: normalizedSamples,
+    },
+    streaming,
+  };
+}
 
 function normalizeText(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -237,8 +349,17 @@ export function RecordingView() {
   const committedLiveSegmentsRef = useRef<Map<string, LiveTranscriptSegment>>(
     new Map()
   );
+  const micMeterStateRef = useRef<MeterNormalizerState>(createMeterNormalizerState());
+  const systemMeterStateRef = useRef<MeterNormalizerState>(createMeterNormalizerState());
 
   const isRecording = recordingState === "Recording";
+
+  useEffect(() => {
+    if (!isRecording) {
+      resetMeterNormalizerState(micMeterStateRef.current);
+      resetMeterNormalizerState(systemMeterStateRef.current);
+    }
+  }, [isRecording]);
 
   // Fetch initial state on mount
   useEffect(() => {
@@ -567,8 +688,32 @@ export function RecordingView() {
     }
   }, [settings, toast]);
   const transcriptLines = livePreviewSegments;
-  const micStreaming = isRecording && micMetrics.rms > 0.008;
-  const systemStreaming = isRecording && systemMetrics.rms > 0.008;
+  const {
+    micDisplayMetrics,
+    systemDisplayMetrics,
+    micStreaming,
+    systemStreaming,
+  } = useMemo(() => {
+    const nowMs = Date.now();
+    const micDisplay = buildMeterDisplay(
+      micMetrics,
+      micMeterStateRef.current,
+      isRecording,
+      nowMs
+    );
+    const systemDisplay = buildMeterDisplay(
+      systemMetrics,
+      systemMeterStateRef.current,
+      isRecording,
+      nowMs
+    );
+    return {
+      micDisplayMetrics: micDisplay.metrics,
+      systemDisplayMetrics: systemDisplay.metrics,
+      micStreaming: micDisplay.streaming,
+      systemStreaming: systemDisplay.streaming,
+    };
+  }, [micMetrics, systemMetrics, isRecording]);
 
   return (
     <div className="flex flex-col h-full">
@@ -607,7 +752,7 @@ export function RecordingView() {
               onClick={handleStartRecording}
               disabled={isLoading}
               size="sm"
-              className="gap-2"
+              className="min-w-[164px] justify-center text-center"
             >
               {isLoading ? (
                 <>
@@ -615,10 +760,7 @@ export function RecordingView() {
                   Starting...
                 </>
               ) : (
-                <>
-                  <span className="h-2 w-2 rounded-full bg-white" />
-                  Start Meeting
-                </>
+                "Start Recording"
               )}
             </Button>
           ) : (
@@ -682,8 +824,8 @@ export function RecordingView() {
           </div>
           <div className="flex-1">
             <Waveform
-              samples={micMetrics.samples}
-              rms={micMetrics.rms}
+              samples={micDisplayMetrics.samples}
+              rms={micDisplayMetrics.rms}
               color="#3b82f6"
               height={20}
             />
@@ -701,8 +843,8 @@ export function RecordingView() {
           </div>
           <div className="flex-1">
             <Waveform
-              samples={systemMetrics.samples}
-              rms={systemMetrics.rms}
+              samples={systemDisplayMetrics.samples}
+              rms={systemDisplayMetrics.rms}
               color="#10b981"
               height={20}
             />

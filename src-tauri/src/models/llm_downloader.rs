@@ -3,7 +3,7 @@
 //! Downloads GGUF models from Hugging Face with progress reporting.
 
 use anyhow::{Context, Result};
-use futures::StreamExt;
+use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

@@ -34,11 +34,39 @@ function generateId(): string {
 }
 
 const DEFAULT_DURATION = 5000;
+const TOAST_DEDUPE_WINDOW_MS = 900;
+const recentToastFingerprints = new Map<string, number>();
+
+function toastFingerprint(toast: Pick<Toast, 'type' | 'title' | 'message'>): string {
+  const title = toast.title.trim().toLowerCase();
+  const message = (toast.message ?? '').trim().toLowerCase();
+  return `${toast.type}|${title}|${message}`;
+}
+
+function pruneFingerprintCache(now: number): void {
+  for (const [key, timestamp] of recentToastFingerprints.entries()) {
+    if (now - timestamp > TOAST_DEDUPE_WINDOW_MS * 8) {
+      recentToastFingerprints.delete(key);
+    }
+  }
+}
 
 export const useToastStore = create<ToastStore>((set, get) => ({
   toasts: [],
 
   addToast: (toast) => {
+    const fingerprint = toastFingerprint(toast);
+    const now = Date.now();
+    const lastSeen = recentToastFingerprints.get(fingerprint);
+    if (lastSeen !== undefined && now - lastSeen < TOAST_DEDUPE_WINDOW_MS) {
+      const existing = get().toasts.find(
+        (candidate) => toastFingerprint(candidate) === fingerprint
+      );
+      if (existing) {
+        return existing.id;
+      }
+    }
+
     const id = generateId();
     const newToast: Toast = {
       id,
@@ -46,6 +74,8 @@ export const useToastStore = create<ToastStore>((set, get) => ({
       dismissible: true,
       ...toast,
     };
+    recentToastFingerprints.set(fingerprint, now);
+    pruneFingerprintCache(now);
 
     set((state) => ({
       toasts: [...state.toasts, newToast],

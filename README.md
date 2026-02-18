@@ -1,19 +1,25 @@
 # Meeting Scribe
 
-Meeting Scribe is a **privacy-first desktop app** for recording, transcribing, summarizing, and searching meeting content. All inference runs locally using open-source models.
-
 <p align="left">
   <img src="src/assets/branding/meeting-scribe-logo.svg" alt="Meeting Scribe logo" width="420" />
-  <img src="src/assets/branding/meeting-scribe-mark.svg" alt="Meeting Scribe mark" width="92" />
 </p>
 
+Meeting Scribe is a **privacy-first desktop app** for recording, transcribing, summarizing, and searching meeting content. All inference runs locally using open-source models.
+
 **Stack:** Rust + Tauri v2 + React + TypeScript
+
+## Quick Start
+
+```bash
+pnpm install
+pnpm tauri dev
+```
 
 ## Features
 
 - Record microphone + system audio (Windows WASAPI, macOS CoreAudio Process Tap with loopback fallback, Linux PipeWire/Pulse monitor input)
 - Local transcription (default: Parakeet via `transcribe-rs`)
-- Local summaries + action items (llama.cpp via `llama-cpp-2`)
+- Local summaries + action items (llama.cpp via `llama-cpp-2`, generated in background tasks)
 - Semantic search + RAG chat (EmbeddingGemma + LanceDB)
 - SQLite storage for meetings, transcripts, notes, summaries
 
@@ -32,14 +38,15 @@ Some Rust deps may require additional tooling depending on your environment:
 - `protoc` (protobuf compiler)
 - `cmake` + `ninja` (for crates that compile native code)
 
-### Commands
+### Core Commands
 
 ```bash
-pnpm install
 pnpm tauri dev
+pnpm tauri build
+pnpm tauri build --debug
 ```
 
-macOS notes:
+### macOS Notes
 - Grant Microphone permission when prompted.
 - Grant System Audio Capture permission when prompted (macOS Process Tap).
 - On macOS 14.2+, app tries native CoreAudio Process Tap first.
@@ -57,8 +64,6 @@ Windows convenience script (sets a few env vars before `pnpm tauri dev`):
 dev.bat
 ```
 
-If you move this repo, update any hard-coded paths in `dev.bat` and `.cargo/config.toml`.
-
 ### Lint / Typecheck / Tests
 
 ```bash
@@ -68,6 +73,19 @@ npx tsc --noEmit
 cd src-tauri
 cargo test
 cargo clippy
+```
+
+### Dependency Hygiene
+
+Use these when doing maintenance/refactors:
+
+```bash
+# Frontend dependency scan (note: can report false positives for PostCSS/Tailwind config usage)
+pnpm dlx depcheck
+
+# Rust dependency scan
+cd src-tauri
+cargo machete --with-metadata --skip-target-dir
 ```
 
 ## CI/CD And GitHub Releases

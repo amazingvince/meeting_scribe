@@ -8,7 +8,7 @@ use crate::inference::embedding::{
 };
 use crate::inference::embedding_pipeline::{EmbeddingPipeline, ProcessingResult};
 use crate::models::EmbeddingModel;
-use futures::StreamExt;
+use futures_util::StreamExt;
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::io::Write as IoWrite;

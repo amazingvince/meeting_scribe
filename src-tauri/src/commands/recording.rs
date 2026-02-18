@@ -776,15 +776,16 @@ async fn emit_waveform_loop(app: AppHandle, session: SharedRecordingSession) {
                 .map(|t| t.elapsed().as_millis() as u64)
                 .unwrap_or(0);
 
-            // Get samples from shared buffers (peek, don't drain - capture thread drains to these)
+            // Read from preview buffers so meter data remains stable and independent
+            // of recorder drain timing.
             let mic_samples = session_guard
                 .buffers
-                .mic_clean
+                .mic_preview
                 .peek_latest_samples(WHISPER_SAMPLE_RATE as usize / 20);
 
             let system_samples = session_guard
                 .buffers
-                .system
+                .system_preview
                 .peek_latest_samples(WHISPER_SAMPLE_RATE as usize / 20);
 
             // Also write accumulated samples to recorders periodically
