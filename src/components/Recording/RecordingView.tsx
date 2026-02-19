@@ -544,7 +544,9 @@ export function RecordingView() {
 
     try {
       const loopbackDevice = settings.macSystemAudioDevice.trim();
+      const microphoneDevice = settings.microphoneDevice.trim();
       const id = await api.startRecording({
+        microphoneDevice: microphoneDevice.length > 0 ? microphoneDevice : undefined,
         macSystemAudio: {
           backend: settings.macSystemAudioBackend,
           loopbackDevice: loopbackDevice.length > 0 ? loopbackDevice : undefined,
@@ -565,7 +567,11 @@ export function RecordingView() {
     } finally {
       setIsLoading(false);
     }
-  }, [settings.macSystemAudioBackend, settings.macSystemAudioDevice]);
+  }, [
+    settings.macSystemAudioBackend,
+    settings.macSystemAudioDevice,
+    settings.microphoneDevice,
+  ]);
 
   const handleStopRecording = useCallback(async () => {
     setError(null);

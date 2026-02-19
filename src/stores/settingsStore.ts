@@ -102,6 +102,7 @@ interface SettingsStore {
   echoCancellationBackend: EchoCancellationBackend;
   macSystemAudioBackend: MacSystemAudioBackend;
   macSystemAudioDevice: string;
+  microphoneDevice: string;
 
   // Model status (not persisted)
   llmStatus: LlmStatus | null;
@@ -147,6 +148,7 @@ interface SettingsStore {
   setEchoCancellationBackend: (backend: EchoCancellationBackend) => void;
   setMacSystemAudioBackend: (backend: MacSystemAudioBackend) => void;
   setMacSystemAudioDevice: (device: string) => void;
+  setMicrophoneDevice: (device: string) => void;
 
   // Actions - Model management
   refreshModelStatus: () => Promise<void>;
@@ -192,6 +194,7 @@ export const useSettingsStore = create<SettingsStore>()(
         echoCancellationBackend: 'webrtc_aec3',
         macSystemAudioBackend: 'auto',
         macSystemAudioDevice: '',
+        microphoneDevice: '',
 
         // Model status
         llmStatus: null,
@@ -286,6 +289,7 @@ export const useSettingsStore = create<SettingsStore>()(
           set({ macSystemAudioBackend: backend }),
         setMacSystemAudioDevice: (device) =>
           set({ macSystemAudioDevice: device }),
+        setMicrophoneDevice: (device) => set({ microphoneDevice: device }),
 
         // Model management
         refreshModelStatus: async () => {
@@ -944,7 +948,7 @@ export const useSettingsStore = create<SettingsStore>()(
     },
     {
       name: 'meeting-scribe-settings',
-      version: 2,
+      version: 3,
       migrate: (persistedState) => {
         const state =
           persistedState && typeof persistedState === 'object'
@@ -956,6 +960,8 @@ export const useSettingsStore = create<SettingsStore>()(
             state.transcriptionBackend
           ),
           llmModel: normalizeLlmModel(state.llmModel),
+          microphoneDevice:
+            typeof state.microphoneDevice === 'string' ? state.microphoneDevice : '',
         };
       },
       partialize: (state) => ({
@@ -971,6 +977,7 @@ export const useSettingsStore = create<SettingsStore>()(
         echoCancellationBackend: state.echoCancellationBackend,
         macSystemAudioBackend: state.macSystemAudioBackend,
         macSystemAudioDevice: state.macSystemAudioDevice,
+        microphoneDevice: state.microphoneDevice,
       }),
     }
   )

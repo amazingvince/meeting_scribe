@@ -323,9 +323,14 @@ impl VectorStore {
 
             for i in 0..batch.num_rows() {
                 let distance = distances.map(|d| d.value(i)).unwrap_or(0.0);
-                // Convert L2 distance to similarity score (closer to 1 is better)
-                // For cosine distance, similarity = 1 - distance
-                let similarity = 1.0 - distance.min(1.0);
+                // Distance metric can vary by index config; keep conversion monotonic,
+                // bounded, and robust so retrieval scoring stays stable.
+                let safe_distance = if distance.is_finite() && distance > 0.0 {
+                    distance
+                } else {
+                    0.0
+                };
+                let similarity = 1.0 / (1.0 + safe_distance);
 
                 search_results.push(SearchResult {
                     id: ids.value(i).to_string(),

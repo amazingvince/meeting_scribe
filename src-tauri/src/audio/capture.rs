@@ -16,6 +16,11 @@ use tracing::{debug, error, info, warn};
 use super::buffer::AudioBuffer;
 use super::{AudioChannel, BITS_PER_SAMPLE, CHANNELS, WHISPER_SAMPLE_RATE};
 
+/// Optional input-device override for microphone capture.
+const MICROPHONE_DEVICE_ENV: &str = "MEETING_SCRIBE_MIC_DEVICE";
+/// Backward-compatible alias for microphone device override.
+const MICROPHONE_DEVICE_ENV_LEGACY: &str = "MEETING_SCRIBE_MICROPHONE_DEVICE";
+
 /// Audio capture manager for a single input device
 pub struct AudioCapture {
     device: Device,
@@ -30,16 +35,14 @@ pub struct AudioCapture {
 }
 
 impl AudioCapture {
-    /// Create capture for default input device (microphone)
+    /// Create capture for microphone input.
     pub fn new_microphone() -> Result<Self> {
         let host = cpal::default_host();
-
-        let device = host
-            .default_input_device()
-            .context("No input device available")?;
-
-        let device_name = device.name().unwrap_or_else(|_| "Unknown".to_string());
-        info!("Using input device: {}", device_name);
+        let (device, device_name, selection_reason) = resolve_microphone_device(&host)?;
+        info!(
+            "Using input device for microphone capture: {} ({})",
+            device_name, selection_reason
+        );
 
         // Get supported config from the device
         let supported_config = device
@@ -230,6 +233,236 @@ impl AudioCapture {
     pub fn device_name(&self) -> String {
         self.device.name().unwrap_or_else(|_| "Unknown".to_string())
     }
+}
+
+fn resolve_microphone_device(host: &cpal::Host) -> Result<(Device, String, &'static str)> {
+    let preferred = resolve_preferred_microphone_name();
+    let default_name = host
+        .default_input_device()
+        .and_then(|device| device.name().ok());
+
+    let mut devices = host
+        .input_devices()
+        .context("Failed to enumerate input devices")?
+        .map(|device| {
+            let name = device
+                .name()
+                .unwrap_or_else(|_| "Unknown input device".to_string());
+            (device, name)
+        })
+        .collect::<Vec<_>>();
+
+    if devices.is_empty() {
+        anyhow::bail!("No input device available");
+    }
+
+    let names = devices
+        .iter()
+        .map(|(_, name)| name.as_str())
+        .collect::<Vec<_>>();
+    if let Some(default_name) = default_name.as_deref() {
+        info!("Default input device reported by OS: {}", default_name);
+    } else {
+        warn!("OS did not report a default input device; selecting from available inputs");
+    }
+
+    let device_debug = names
+        .iter()
+        .map(|name| {
+            format!(
+                "{} [score={}, loopback={}, output_like={}]",
+                name,
+                microphone_device_score(name),
+                is_probable_loopback_device(name),
+                is_probable_output_like_device(name)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    info!("Available input device candidates: {}", device_debug);
+
+    let (selected_index, reason) =
+        select_microphone_device_index(&names, default_name.as_deref(), preferred.as_deref())?;
+
+    let (device, device_name) = devices.swap_remove(selected_index);
+    Ok((device, device_name, reason))
+}
+
+fn resolve_preferred_microphone_name() -> Option<String> {
+    std::env::var(MICROPHONE_DEVICE_ENV)
+        .ok()
+        .or_else(|| std::env::var(MICROPHONE_DEVICE_ENV_LEGACY).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn select_microphone_device_index(
+    device_names: &[&str],
+    default_device_name: Option<&str>,
+    preferred_device_name: Option<&str>,
+) -> Result<(usize, &'static str)> {
+    if let Some(preferred) = preferred_device_name {
+        let preferred_lower = preferred.to_ascii_lowercase();
+
+        if let Some((idx, _)) = device_names
+            .iter()
+            .enumerate()
+            .find(|(_, name)| name.to_ascii_lowercase() == preferred_lower)
+        {
+            let candidate = device_names[idx];
+            if !is_probable_loopback_device(candidate) && !is_probable_output_like_device(candidate)
+            {
+                return Ok((idx, "env override"));
+            }
+            warn!(
+                "Ignoring '{}'='{}' because '{}' looks like a loopback/output source",
+                MICROPHONE_DEVICE_ENV, preferred, candidate
+            );
+        }
+
+        if let Some((idx, _)) = device_names
+            .iter()
+            .enumerate()
+            .find(|(_, name)| name.to_ascii_lowercase().contains(&preferred_lower))
+        {
+            let candidate = device_names[idx];
+            if !is_probable_loopback_device(candidate) && !is_probable_output_like_device(candidate)
+            {
+                return Ok((idx, "env override"));
+            }
+            warn!(
+                "Ignoring '{}'='{}' because '{}' looks like a loopback/output source",
+                MICROPHONE_DEVICE_ENV, preferred, candidate
+            );
+        }
+
+        info!(
+            "Configured '{}'='{}' did not resolve to a usable microphone; falling back to automatic microphone selection",
+            MICROPHONE_DEVICE_ENV, preferred
+        );
+    }
+
+    let default_index = default_device_name.and_then(|default| {
+        let default_lower = default.to_ascii_lowercase();
+        device_names
+            .iter()
+            .enumerate()
+            .find(|(_, name)| name.to_ascii_lowercase() == default_lower)
+            .map(|(idx, _)| idx)
+    });
+
+    if let Some(default_index) = default_index {
+        let default_name = device_names[default_index];
+        if !is_probable_loopback_device(default_name)
+            && !is_probable_output_like_device(default_name)
+        {
+            return Ok((default_index, "default input"));
+        }
+    }
+
+    let best_non_loopback = device_names
+        .iter()
+        .enumerate()
+        .filter(|(_, name)| {
+            !is_probable_loopback_device(name) && !is_probable_output_like_device(name)
+        })
+        .map(|(idx, name)| (idx, microphone_device_score(name)))
+        .max_by_key(|(_, score)| *score);
+
+    if let Some((idx, _)) = best_non_loopback {
+        return if default_index.is_some() {
+            Ok((
+                idx,
+                "default input not suitable for microphone; selected microphone candidate",
+            ))
+        } else {
+            Ok((idx, "microphone candidate match"))
+        };
+    }
+
+    if let Some(default_index) = default_index {
+        return Ok((
+            default_index,
+            "default input (no better microphone candidate)",
+        ));
+    }
+
+    let first_non_loopback = device_names
+        .iter()
+        .enumerate()
+        .find(|(_, name)| {
+            !is_probable_loopback_device(name) && !is_probable_output_like_device(name)
+        })
+        .map(|(idx, _)| idx);
+
+    if let Some(idx) = first_non_loopback {
+        return Ok((idx, "first non-loopback input device"));
+    }
+
+    Ok((
+        0,
+        "first available input device (no clear microphone candidate)",
+    ))
+}
+
+fn is_probable_loopback_device(name: &str) -> bool {
+    let normalized = name.to_ascii_lowercase();
+    normalized.contains("blackhole")
+        || normalized.contains("loopback")
+        || normalized.contains("soundflower")
+        || normalized.contains("vb-cable")
+        || normalized.contains("vb cable")
+        || normalized.contains("background music")
+        || normalized.contains("monitor")
+        || normalized.contains("process tap")
+        || normalized.contains("systemtap")
+        || normalized.contains("system audio")
+        || normalized.contains("virtual audio")
+        || normalized.contains("aggregate")
+}
+
+fn is_probable_output_like_device(name: &str) -> bool {
+    let normalized = name.to_ascii_lowercase();
+    let has_output_words = normalized.contains("speaker")
+        || normalized.contains("output")
+        || normalized.contains("playback");
+    let has_mic_words = normalized.contains("microphone")
+        || normalized.contains("mic")
+        || normalized.contains("headset")
+        || normalized.contains("airpods");
+    has_output_words && !has_mic_words
+}
+
+fn microphone_device_score(name: &str) -> i32 {
+    let normalized = name.to_ascii_lowercase();
+    if is_probable_loopback_device(&normalized) {
+        return -100;
+    }
+    if is_probable_output_like_device(&normalized) {
+        return -50;
+    }
+
+    let mut score = 0i32;
+    if normalized.contains("microphone") || normalized.contains("mic") {
+        score += 90;
+    }
+    if normalized.contains("built-in")
+        || normalized.contains("builtin")
+        || normalized.contains("internal")
+    {
+        score += 35;
+    }
+    if normalized.contains("headset")
+        || normalized.contains("headphone")
+        || normalized.contains("airpods")
+    {
+        score += 30;
+    }
+    if normalized.contains("usb") || normalized.contains("external") {
+        score += 20;
+    }
+
+    score
 }
 
 impl Drop for AudioCapture {
@@ -560,5 +793,79 @@ mod tests {
         for (in_sample, out_sample) in input.iter().zip(output.iter()) {
             assert!((in_sample - out_sample).abs() < 1e-3);
         }
+    }
+
+    #[test]
+    fn microphone_selection_prefers_real_mic_over_loopback_default() {
+        let devices = vec!["BlackHole 2ch", "MacBook Pro Microphone", "Loopback Audio"];
+        let (idx, reason) =
+            select_microphone_device_index(&devices, Some("BlackHole 2ch"), None).unwrap();
+        assert_eq!(idx, 1);
+        assert_eq!(
+            reason,
+            "default input not suitable for microphone; selected microphone candidate"
+        );
+    }
+
+    #[test]
+    fn microphone_selection_uses_env_override() {
+        let devices = vec!["MacBook Pro Microphone", "USB PnP Audio Device"];
+        let (idx, reason) = select_microphone_device_index(
+            &devices,
+            Some("MacBook Pro Microphone"),
+            Some("usb pnp"),
+        )
+        .unwrap();
+        assert_eq!(idx, 1);
+        assert_eq!(reason, "env override");
+    }
+
+    #[test]
+    fn microphone_selection_ignores_loopback_env_override() {
+        let devices = vec!["Built-in Microphone", "BlackHole 2ch"];
+        let (idx, reason) = select_microphone_device_index(
+            &devices,
+            Some("Built-in Microphone"),
+            Some("blackhole"),
+        )
+        .unwrap();
+        assert_eq!(idx, 0);
+        assert_eq!(reason, "default input");
+    }
+
+    #[test]
+    fn microphone_selection_prefers_mic_when_default_is_non_mic_device() {
+        let devices = vec![
+            "MacBook Pro Speakers",
+            "Built-in Microphone",
+            "BlackHole 2ch",
+        ];
+        let (idx, reason) =
+            select_microphone_device_index(&devices, Some("MacBook Pro Speakers"), None).unwrap();
+        assert_eq!(idx, 1);
+        assert_eq!(
+            reason,
+            "default input not suitable for microphone; selected microphone candidate"
+        );
+    }
+
+    #[test]
+    fn microphone_scoring_penalizes_virtual_loopback_devices() {
+        assert!(microphone_device_score("Built-in Microphone") > 0);
+        assert!(microphone_device_score("BlackHole 2ch") < 0);
+        assert!(microphone_device_score("Loopback Audio") < 0);
+        assert!(microphone_device_score("MacBook Pro Speakers") < 0);
+    }
+
+    #[test]
+    fn microphone_selection_prefers_non_loopback_even_without_mic_keyword() {
+        let devices = vec!["BlackHole 2ch", "Scarlett 2i2 USB", "Loopback Audio"];
+        let (idx, reason) =
+            select_microphone_device_index(&devices, Some("BlackHole 2ch"), None).unwrap();
+        assert_eq!(idx, 1);
+        assert_eq!(
+            reason,
+            "default input not suitable for microphone; selected microphone candidate"
+        );
     }
 }

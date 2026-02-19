@@ -7,6 +7,7 @@
   - Native speaker-output capture on macOS 14.2+ via a Swift helper (`macos_process_tap_helper.swift`).
   - Automatic fallback to virtual loopback input devices (BlackHole/Loopback/Soundflower/Background Music).
   - Optional device override via `MEETING_SCRIBE_SYSTEM_AUDIO_DEVICE`.
+  - Optional microphone override via `MEETING_SCRIBE_MIC_DEVICE` when default input is a virtual loopback device.
   - Optional backend override via `MEETING_SCRIBE_MACOS_SYSTEM_AUDIO_BACKEND=process_tap|loopback|auto`.
 - Linux: `PipeWire/Pulse monitor input` backend implemented in `src-tauri/src/audio/platform/linux.rs`.
   - Auto-selects monitor/loopback input devices by name heuristics (`Monitor of ...`, `.monitor`, `loopback`, etc.).

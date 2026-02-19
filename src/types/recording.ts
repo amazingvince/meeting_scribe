@@ -52,6 +52,7 @@ export interface MacSystemAudioSettings {
 /** Options for starting a recording session */
 export interface StartRecordingOptions {
   macSystemAudio?: MacSystemAudioSettings;
+  microphoneDevice?: string;
 }
 
 /** Options for meeting transcription processing */

@@ -36,6 +36,7 @@ impl EmbeddingPipeline {
     pub async fn process_transcript<F>(
         &self,
         meeting_id: &str,
+        document_title: Option<&str>,
         segments: Vec<TranscriptSegmentInput>,
         mut progress_callback: F,
     ) -> Result<ProcessingResult>
@@ -82,7 +83,7 @@ impl EmbeddingPipeline {
 
             let embeddings = self
                 .embedding_service
-                .embed_batch(&texts, EmbeddingTask::Document)?;
+                .embed_documents_with_title(&texts, document_title)?;
 
             for (chunk, embedding) in batch.iter().zip(embeddings) {
                 records.push(EmbeddingRecord::new_transcript(

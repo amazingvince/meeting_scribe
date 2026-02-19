@@ -42,6 +42,15 @@ export interface MeetingSearchMatch {
   snippet: string;
   startMs: number | null;
   source: 'hybrid' | 'title';
+  references?: MeetingSearchReference[];
+}
+
+export interface MeetingSearchReference {
+  snippet: string;
+  startMs: number | null;
+  endMs: number | null;
+  score: number;
+  chunkType: string;
 }
 
 interface RankedMeeting {
@@ -52,11 +61,51 @@ interface RankedMeeting {
 
 function rankHybridHit(hit: SemanticSearchResult, rankIndex: number): number {
   const rankScore = 1 / (rankIndex + 1);
-  const similarityScore = Number.isFinite(hit.similarity)
-    ? Math.max(0, hit.similarity)
-    : 0;
+  const retrievalScore =
+    typeof hit.retrieval_score === 'number' && Number.isFinite(hit.retrieval_score)
+      ? Math.max(0, hit.retrieval_score)
+      : 0;
+  const similarityScore = Number.isFinite(hit.similarity) ? Math.max(0, hit.similarity) : 0;
   const sourceBoost = hit.chunk_type === 'fts' ? 0.1 : 0;
-  return rankScore + similarityScore * 0.35 + sourceBoost;
+  return rankScore * 0.25 + retrievalScore * 0.55 + similarityScore * 0.2 + sourceBoost;
+}
+
+function meetingReferenceKey(hit: SemanticSearchResult): string {
+  const chunkPart =
+    hit.chunk_index !== null
+      ? `idx:${hit.chunk_index}`
+      : `time:${hit.start_ms ?? -1}:${hit.end_ms ?? -1}`;
+  return `${hit.chunk_type}:${chunkPart}:${compactSnippet(hit.text, 120)}`;
+}
+
+function pushMeetingReference(
+  referencesByMeeting: Map<string, MeetingSearchReference[]>,
+  referenceKeysByMeeting: Map<string, Set<string>>,
+  meetingId: string,
+  hit: SemanticSearchResult,
+  score: number
+): void {
+  const nextReference: MeetingSearchReference = {
+    snippet: compactSnippet(hit.text),
+    startMs: hit.start_ms ?? null,
+    endMs: hit.end_ms ?? null,
+    score,
+    chunkType: hit.chunk_type,
+  };
+  const key = meetingReferenceKey(hit);
+
+  const keys = referenceKeysByMeeting.get(meetingId) ?? new Set<string>();
+  if (keys.has(key)) {
+    return;
+  }
+
+  const references = referencesByMeeting.get(meetingId) ?? [];
+  references.push(nextReference);
+  references.sort((a, b) => b.score - a.score);
+  referencesByMeeting.set(meetingId, references.slice(0, 3));
+
+  keys.add(key);
+  referenceKeysByMeeting.set(meetingId, keys);
 }
 
 interface MeetingsStore {
@@ -156,6 +205,8 @@ export const useMeetingsStore = create<MeetingsStore>((set, get) => ({
         ]);
 
         const rankedByMeetingId = new Map<string, RankedMeeting>();
+        const referencesByMeetingId = new Map<string, MeetingSearchReference[]>();
+        const referenceKeysByMeetingId = new Map<string, Set<string>>();
         const meetingById = new Map<string, Meeting>();
         for (const meeting of candidateMeetings) {
           meetingById.set(meeting.id, meeting);
@@ -168,11 +219,21 @@ export const useMeetingsStore = create<MeetingsStore>((set, get) => ({
           }
 
           const nextScore = rankHybridHit(hit, rankIndex);
+          pushMeetingReference(
+            referencesByMeetingId,
+            referenceKeysByMeetingId,
+            hit.meeting_id,
+            hit,
+            nextScore
+          );
+
           const existing = rankedByMeetingId.get(hit.meeting_id);
+          const meetingReferences = referencesByMeetingId.get(hit.meeting_id) ?? [];
           const match: MeetingSearchMatch = {
             snippet: compactSnippet(hit.text),
             startMs: hit.start_ms ?? null,
             source: 'hybrid',
+            references: meetingReferences,
           };
 
           if (!existing || nextScore > existing.score) {

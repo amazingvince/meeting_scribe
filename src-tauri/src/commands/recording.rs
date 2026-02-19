@@ -87,6 +87,8 @@ pub struct MacSystemAudioSettings {
 pub struct StartRecordingOptions {
     /// Optional macOS system-audio settings.
     pub mac_system_audio: Option<MacSystemAudioSettings>,
+    /// Optional preferred microphone input device name.
+    pub microphone_device: Option<String>,
 }
 
 /// Start recording
@@ -153,41 +155,10 @@ pub async fn start_recording(
             .unwrap_or_else(|| "Failed to start microphone capture".to_string()));
     }
 
-    // If user explicitly selected a specific macOS backend, treat system-audio
-    // startup failure as fatal so they get immediate actionable feedback.
+    // System audio is best-effort: never block mic-only recording when it fails.
     if !init_result.system_ok {
-        #[cfg(target_os = "macos")]
-        {
-            let explicit_backend = options
-                .as_ref()
-                .and_then(|o| o.mac_system_audio.as_ref())
-                .and_then(|s| s.backend.as_deref())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_ascii_lowercase);
-
-            let requires_system_audio = matches!(
-                explicit_backend.as_deref(),
-                Some("process_tap")
-                    | Some("process-tap")
-                    | Some("tap")
-                    | Some("loopback")
-                    | Some("loopback_input")
-                    | Some("loopback-input")
-            );
-            let auto_backend = matches!(explicit_backend.as_deref(), None | Some("auto"));
-
-            if requires_system_audio || auto_backend {
-                let _ = stop_tx.send(());
-                let _ = std::fs::remove_dir_all(&meeting_dir);
-                return Err(init_result.system_error.unwrap_or_else(|| {
-                    "System audio capture failed to start for selected backend".to_string()
-                }));
-            }
-        }
-
-        warn!("System audio capture not available - only microphone will be recorded");
-        if let Some(system_error) = init_result.system_error {
+        warn!("System audio capture not available - continuing with microphone-only recording");
+        if let Some(system_error) = &init_result.system_error {
             warn!("System audio failure detail: {}", system_error);
         }
     }
@@ -237,6 +208,7 @@ fn run_capture_thread(
     use crate::audio::platform::{system_audio_backend_capabilities, SystemAudioCapture};
 
     let system_audio_caps = system_audio_backend_capabilities();
+    apply_microphone_device_override(options.as_ref());
     apply_system_audio_device_override(options.as_ref());
 
     #[cfg(target_os = "macos")]
@@ -329,44 +301,57 @@ fn run_capture_thread(
         error: None,
     });
 
-    let requested_echo_backend = {
-        #[cfg(target_os = "macos")]
-        {
-            std::env::var("MEETING_SCRIBE_REALTIME_ECHO_BACKEND")
-                .ok()
-                .and_then(|value| EchoCancellationBackend::parse(&value))
-                .unwrap_or(EchoCancellationBackend::WebRtcAec3)
+    let mut realtime_aec = if realtime_mic_cleanup_enabled() {
+        let requested_echo_backend = {
+            #[cfg(target_os = "macos")]
+            {
+                std::env::var("MEETING_SCRIBE_REALTIME_ECHO_BACKEND")
+                    .ok()
+                    .and_then(|value| EchoCancellationBackend::parse(&value))
+                    .unwrap_or(EchoCancellationBackend::WebRtcAec3)
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                crate::audio::aec::resolve_echo_backend(None)
+            }
+        };
+
+        match RealtimeEchoCanceller::new(WHISPER_SAMPLE_RATE, requested_echo_backend) {
+            Ok(processor) => {
+                info!(
+                    "Real-time mic cleanup enabled: requested_backend={}, used_backend={}, fallback={}",
+                    requested_echo_backend.as_str(),
+                    processor.backend_used().as_str(),
+                    processor.fallback_used()
+                );
+                Some(processor)
+            }
+            Err(e) => {
+                warn!(
+                    "Real-time mic cleanup unavailable (requested_backend={}): {}. Falling back to raw mic.",
+                    requested_echo_backend.as_str(),
+                    e
+                );
+                None
+            }
         }
-        #[cfg(not(target_os = "macos"))]
-        {
-            crate::audio::aec::resolve_echo_backend(None)
-        }
-    };
-    let mut realtime_aec = match RealtimeEchoCanceller::new(
-        WHISPER_SAMPLE_RATE,
-        requested_echo_backend,
-    ) {
-        Ok(processor) => {
-            info!(
-                "Real-time mic cleanup enabled: requested_backend={}, used_backend={}, fallback={}",
-                requested_echo_backend.as_str(),
-                processor.backend_used().as_str(),
-                processor.fallback_used()
-            );
-            Some(processor)
-        }
-        Err(e) => {
-            warn!(
-                "Real-time mic cleanup unavailable (requested_backend={}): {}. Falling back to mic passthrough.",
-                requested_echo_backend.as_str(),
-                e
-            );
-            None
-        }
+    } else {
+        info!("Real-time mic cleanup disabled via MEETING_SCRIBE_ENABLE_REALTIME_MIC_CLEANUP=0");
+        None
     };
 
     // Run capture loop - transfer samples from capture buffers to shared buffers
     let transfer_interval = std::time::Duration::from_millis(20);
+    let mut mic_samples_total: usize = 0;
+    let mut system_samples_total: usize = 0;
+    let mut cleaned_samples_total: usize = 0;
+    let mut mic_nonzero_samples: usize = 0;
+    let mut cleaned_nonzero_samples: usize = 0;
+    let mut mic_max_abs: f32 = 0.0;
+    let mut cleaned_max_abs: f32 = 0.0;
+    let loop_start = std::time::Instant::now();
+    let mut last_diagnostic = std::time::Instant::now();
+    let mut warned_mic_silent = false;
     loop {
         // Check if stop signal received
         match stop_rx.try_recv() {
@@ -387,25 +372,63 @@ fn run_capture_thread(
         };
 
         if !mic_samples.is_empty() {
+            mic_samples_total += mic_samples.len();
+            mic_nonzero_samples += mic_samples.iter().filter(|s| s.abs() > 1e-7).count();
+            if let Some(max) = mic_samples.iter().map(|s| s.abs()).reduce(f32::max) {
+                mic_max_abs = mic_max_abs.max(max);
+            }
             buffers.mic.push_samples(&mic_samples);
         }
 
         if !system_samples.is_empty() {
+            system_samples_total += system_samples.len();
             buffers.system.push_samples(&system_samples);
             buffers.system_preview.push_samples(&system_samples);
         }
 
         if !mic_samples.is_empty() {
-            let cleaned_samples = if let Some(ref mut processor) = realtime_aec {
-                processor.process_chunk(&mic_samples, &system_samples)
+            if let Some(ref mut processor) = realtime_aec {
+                let cleaned_samples = processor.process_chunk(&mic_samples, &system_samples);
+                if !cleaned_samples.is_empty() {
+                    cleaned_samples_total += cleaned_samples.len();
+                    cleaned_nonzero_samples += cleaned_samples.iter().filter(|s| s.abs() > 1e-7).count();
+                    if let Some(max) = cleaned_samples.iter().map(|s| s.abs()).reduce(f32::max) {
+                        cleaned_max_abs = cleaned_max_abs.max(max);
+                    }
+                    buffers.mic_clean.push_samples(&cleaned_samples);
+                    buffers.mic_preview.push_samples(&cleaned_samples);
+                }
             } else {
-                mic_samples.clone()
-            };
-
-            if !cleaned_samples.is_empty() {
-                buffers.mic_clean.push_samples(&cleaned_samples);
-                buffers.mic_preview.push_samples(&cleaned_samples);
+                cleaned_samples_total += mic_samples.len();
+                cleaned_nonzero_samples += mic_samples.iter().filter(|s| s.abs() > 1e-7).count();
+                buffers.mic_clean.push_samples(&mic_samples);
+                buffers.mic_preview.push_samples(&mic_samples);
             }
+        }
+
+        // Periodic diagnostics (every 5 seconds)
+        let elapsed_since_diag = last_diagnostic.elapsed();
+        if elapsed_since_diag >= std::time::Duration::from_secs(5) {
+            let total_elapsed = loop_start.elapsed().as_secs_f32();
+            info!(
+                "Capture diagnostics ({:.0}s): mic={} (nonzero={}, peak={:.4}), system={}, cleaned={} (nonzero={}, peak={:.4})",
+                total_elapsed, mic_samples_total, mic_nonzero_samples, mic_max_abs,
+                system_samples_total,
+                cleaned_samples_total, cleaned_nonzero_samples, cleaned_max_abs
+            );
+
+            // Warn if mic is producing all-zero samples (possible permission issue)
+            if !warned_mic_silent && mic_samples_total > 32000 && mic_nonzero_samples == 0 {
+                warn!(
+                    "Microphone appears to be producing only silence ({} samples, 0 non-zero). \
+                     This may indicate macOS microphone permission was not granted to this app. \
+                     Check System Settings > Privacy & Security > Microphone.",
+                    mic_samples_total
+                );
+                warned_mic_silent = true;
+            }
+
+            last_diagnostic = std::time::Instant::now();
         }
 
         std::thread::sleep(transfer_interval);
@@ -414,6 +437,7 @@ fn run_capture_thread(
     if let Some(ref mut processor) = realtime_aec {
         let flushed = processor.flush();
         if !flushed.is_empty() {
+            cleaned_samples_total += flushed.len();
             buffers.mic_clean.push_samples(&flushed);
             buffers.mic_preview.push_samples(&flushed);
         }
@@ -427,7 +451,10 @@ fn run_capture_thread(
         system.stop();
     }
 
-    info!("Capture thread stopped");
+    info!(
+        "Capture thread stopped: mic_samples={}, system_samples={}, cleaned_mic_samples={}",
+        mic_samples_total, system_samples_total, cleaned_samples_total
+    );
 }
 
 fn apply_system_audio_device_override(options: Option<&StartRecordingOptions>) {
@@ -442,6 +469,30 @@ fn apply_system_audio_device_override(options: Option<&StartRecordingOptions>) {
         std::env::set_var(DEVICE_ENV, device);
     } else {
         std::env::remove_var(DEVICE_ENV);
+    }
+}
+
+fn apply_microphone_device_override(options: Option<&StartRecordingOptions>) {
+    const DEVICE_ENV: &str = "MEETING_SCRIBE_MIC_DEVICE";
+
+    if let Some(device) = options
+        .and_then(|o| o.microphone_device.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        std::env::set_var(DEVICE_ENV, device);
+    } else {
+        std::env::remove_var(DEVICE_ENV);
+    }
+}
+
+fn realtime_mic_cleanup_enabled() -> bool {
+    match std::env::var("MEETING_SCRIBE_ENABLE_REALTIME_MIC_CLEANUP") {
+        Ok(raw) => {
+            let normalized = raw.trim().to_ascii_lowercase();
+            !matches!(normalized.as_str(), "0" | "false" | "no" | "off")
+        }
+        Err(_) => true,
     }
 }
 
@@ -600,6 +651,20 @@ pub async fn stop_recording(
             reset_session();
             e.to_string()
         })?;
+
+    let system_path = if system_path
+        .as_ref()
+        .and_then(|path| std::fs::metadata(path).ok())
+        .map(|meta| meta.len() > 44)
+        .unwrap_or(false)
+    {
+        system_path
+    } else {
+        if let Some(path) = system_path.as_ref() {
+            let _ = std::fs::remove_file(path);
+        }
+        None
+    };
 
     let cleaned_has_audio = mic_clean_path
         .as_ref()

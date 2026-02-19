@@ -34,12 +34,40 @@ function loopbackDeviceScore(name: string): number {
   return score;
 }
 
+function microphoneDeviceScore(name: string): number {
+  const value = name.toLowerCase();
+
+  if (
+    value.includes('blackhole') ||
+    value.includes('loopback') ||
+    value.includes('soundflower') ||
+    value.includes('vb-cable') ||
+    value.includes('vb cable') ||
+    value.includes('background music') ||
+    value.includes('monitor of') ||
+    value.includes('.monitor') ||
+    value.includes('process tap') ||
+    value.includes('system audio') ||
+    value.includes('virtual audio')
+  ) {
+    return -100;
+  }
+
+  let score = 0;
+  if (value.includes('microphone') || value.includes('mic')) score += 90;
+  if (value.includes('built-in') || value.includes('builtin') || value.includes('internal')) score += 35;
+  if (value.includes('headset') || value.includes('headphone') || value.includes('airpods')) score += 30;
+  if (value.includes('usb') || value.includes('external')) score += 20;
+  return score;
+}
+
 export function AudioSettings({ platform }: AudioSettingsProps) {
   const normalizedPlatform = platform?.toLowerCase();
   const isPlatformKnown = Boolean(normalizedPlatform);
   const isMac = normalizedPlatform === 'macos' || normalizedPlatform === 'darwin';
   const isLinux = normalizedPlatform === 'linux';
   const supportsLoopbackInputSelection = isMac || isLinux;
+  const supportsInputDeviceSelection = isPlatformKnown;
   const [inputDevices, setInputDevices] = useState<string[]>([]);
   const [devicesLoading, setDevicesLoading] = useState(false);
   const [devicesError, setDevicesError] = useState<string | null>(null);
@@ -53,12 +81,14 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
     setLiveTranscriptionIntervalSec,
     macSystemAudioBackend,
     macSystemAudioDevice,
+    microphoneDevice,
     setMacSystemAudioBackend,
     setMacSystemAudioDevice,
+    setMicrophoneDevice,
   } = useSettingsStore();
 
   useEffect(() => {
-    if (!supportsLoopbackInputSelection) {
+    if (!supportsInputDeviceSelection) {
       setInputDevices([]);
       setDevicesError(null);
       return;
@@ -85,10 +115,20 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
     return () => {
       cancelled = true;
     };
-  }, [supportsLoopbackInputSelection]);
+  }, [supportsInputDeviceSelection]);
 
-  const sortedDevices = useMemo(() => {
+  const sortedLoopbackDevices = useMemo(() => {
     return [...inputDevices].sort((a, b) => loopbackDeviceScore(b) - loopbackDeviceScore(a));
+  }, [inputDevices]);
+
+  const sortedMicrophoneDevices = useMemo(() => {
+    return [...inputDevices].sort((a, b) => {
+      const scoreDelta = microphoneDeviceScore(b) - microphoneDeviceScore(a);
+      if (scoreDelta !== 0) {
+        return scoreDelta;
+      }
+      return a.localeCompare(b);
+    });
   }, [inputDevices]);
 
   return (
@@ -144,60 +184,87 @@ export function AudioSettings({ platform }: AudioSettingsProps) {
           <p className="text-sm text-muted-foreground">
             Detecting platform...
           </p>
-        ) : !supportsLoopbackInputSelection ? (
-          <p className="text-sm text-muted-foreground">
-            System-audio input selection is currently available on macOS and Linux. Windows capture uses output-loopback device selection.
-          </p>
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
               Capture settings apply on the next recording start.
             </p>
 
-            {isMac && (
-              <Select
-                id="mac-system-audio-backend"
-                label="Capture Backend"
-                value={macSystemAudioBackend}
-                onChange={(e) => setMacSystemAudioBackend(e.target.value as 'auto' | 'process_tap' | 'loopback')}
-              >
-                <option value="auto">Auto (Process Tap, then loopback fallback)</option>
-                <option value="process_tap">CoreAudio Process Tap (macOS 14.2+)</option>
-                <option value="loopback">Loopback Input Device Only</option>
-              </Select>
-            )}
-
             <div>
               <Select
-                id="mac-loopback-device"
-                label="Preferred System Audio Input (Optional)"
-                value={macSystemAudioDevice}
-                onChange={(e) => setMacSystemAudioDevice(e.target.value)}
+                id="microphone-device"
+                label="Preferred Microphone Input (Optional)"
+                value={microphoneDevice}
+                onChange={(e) => setMicrophoneDevice(e.target.value)}
                 disabled={devicesLoading}
               >
-                <option value="">Auto-detect best monitor/loopback input</option>
-                {sortedDevices.map((device) => (
+                <option value="">Auto-select microphone input</option>
+                {sortedMicrophoneDevices.map((device) => (
                   <option key={device} value={device}>
                     {device}
                   </option>
                 ))}
               </Select>
               <p className="mt-2 text-xs text-muted-foreground">
-                {isMac
-                  ? 'Choose a loopback input device if auto-detection is wrong.'
-                  : 'Choose a PipeWire/Pulse monitor input device if auto-detection is wrong.'}
+                Choose a microphone explicitly if auto-selection picks the wrong input device.
               </p>
-              {devicesLoading && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Loading input devices...
-                </p>
-              )}
-              {devicesError && (
-                <p className="text-xs text-destructive mt-2">
-                  Failed to list devices: {devicesError}
-                </p>
-              )}
             </div>
+
+            {supportsLoopbackInputSelection ? (
+              <>
+                {isMac && (
+                  <Select
+                    id="mac-system-audio-backend"
+                    label="Capture Backend"
+                    value={macSystemAudioBackend}
+                    onChange={(e) =>
+                      setMacSystemAudioBackend(e.target.value as 'auto' | 'process_tap' | 'loopback')
+                    }
+                  >
+                    <option value="auto">Auto (Process Tap, then loopback fallback)</option>
+                    <option value="process_tap">CoreAudio Process Tap (macOS 14.2+)</option>
+                    <option value="loopback">Loopback Input Device Only</option>
+                  </Select>
+                )}
+
+                <div>
+                  <Select
+                    id="mac-loopback-device"
+                    label="Preferred System Audio Input (Optional)"
+                    value={macSystemAudioDevice}
+                    onChange={(e) => setMacSystemAudioDevice(e.target.value)}
+                    disabled={devicesLoading}
+                  >
+                    <option value="">Auto-detect best monitor/loopback input</option>
+                    {sortedLoopbackDevices.map((device) => (
+                      <option key={device} value={device}>
+                        {device}
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {isMac
+                      ? 'Choose a loopback input device if auto-detection is wrong.'
+                      : 'Choose a PipeWire/Pulse monitor input device if auto-detection is wrong.'}
+                  </p>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                System-audio input selection is currently available on macOS and Linux. Windows uses output-loopback capture selection.
+              </p>
+            )}
+
+            {devicesLoading && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Loading input devices...
+              </p>
+            )}
+            {devicesError && (
+              <p className="text-xs text-destructive mt-2">
+                Failed to list devices: {devicesError}
+              </p>
+            )}
           </>
         )}
       </div>

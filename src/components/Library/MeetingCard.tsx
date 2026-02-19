@@ -15,6 +15,13 @@ interface MeetingSearchMatch {
   snippet: string;
   startMs: number | null;
   source: 'hybrid' | 'title';
+  references?: Array<{
+    snippet: string;
+    startMs: number | null;
+    endMs: number | null;
+    score: number;
+    chunkType: string;
+  }>;
 }
 
 interface MeetingCardProps {
@@ -89,6 +96,12 @@ export function MeetingCard({
     }
     onJumpToTimestamp?.(searchMatch.startMs);
   };
+
+  const references = searchMatch?.references ?? [];
+  const hasMultipleReferences =
+    searchMatch?.source === 'hybrid' &&
+    onJumpToTimestamp &&
+    references.some((ref) => ref.startMs !== null);
 
   return (
     <motion.div
@@ -186,6 +199,46 @@ export function MeetingCard({
             <p className="mt-1 text-sm text-foreground line-clamp-2">
               {renderSnippet(searchMatch.snippet, searchQuery)}
             </p>
+
+            {hasMultipleReferences && (
+              <div className="mt-2 space-y-1.5">
+                {references.map((reference, index) => {
+                  const canJump = reference.startMs !== null;
+                  return (
+                    <button
+                      key={`${reference.chunkType}:${reference.startMs ?? index}`}
+                      type="button"
+                      className={`w-full rounded-md border border-border/70 px-2 py-1.5 text-left text-xs transition-colors ${
+                        canJump ? 'hover:bg-accent/60' : ''
+                      }`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (reference.startMs !== null) {
+                          onJumpToTimestamp?.(reference.startMs);
+                        }
+                      }}
+                      disabled={!canJump}
+                    >
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                        <span className="uppercase tracking-wide">
+                          {reference.chunkType === 'fts'
+                            ? 'Lexical match'
+                            : 'Semantic match'}
+                        </span>
+                        {reference.startMs !== null && (
+                          <span className="font-mono normal-case text-brand">
+                            {formatDuration(reference.startMs)}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-1 line-clamp-1 text-foreground">
+                        {renderSnippet(reference.snippet, searchQuery)}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </Card>

@@ -305,8 +305,8 @@ pub async fn embed_meeting_transcript(
             .clone()
     };
 
-    // Get transcript segments and vector store from storage
-    let (segments, vector_store) = {
+    // Get transcript segments, meeting title, and vector store from storage
+    let (segments, meeting_title, vector_store) = {
         let storage_guard = storage.lock();
         let repos = storage_guard.repositories();
 
@@ -314,6 +314,11 @@ pub async fn embed_meeting_transcript(
             .transcripts
             .get_by_meeting(&meeting_id)
             .map_err(|e| e.to_string())?;
+        let meeting_title = repos
+            .meetings
+            .get(&meeting_id)
+            .map_err(|e| e.to_string())?
+            .map(|meeting| meeting.title);
 
         // Convert to input format
         let segments: Vec<TranscriptSegmentInput> = stored_segments
@@ -321,7 +326,7 @@ pub async fn embed_meeting_transcript(
             .map(TranscriptSegmentInput::from_stored)
             .collect();
 
-        (segments, storage_guard.vectors.clone())
+        (segments, meeting_title, storage_guard.vectors.clone())
     };
 
     if segments.is_empty() {
@@ -338,9 +343,14 @@ pub async fn embed_meeting_transcript(
     // Process with progress events
     let app_clone = app.clone();
     let result = pipeline
-        .process_transcript(&meeting_id, segments, move |progress| {
-            let _ = app_clone.emit("embedding-progress", &progress);
-        })
+        .process_transcript(
+            &meeting_id,
+            meeting_title.as_deref(),
+            segments,
+            move |progress| {
+                let _ = app_clone.emit("embedding-progress", &progress);
+            },
+        )
         .await
         .map_err(|e| e.to_string())?;
 
@@ -383,6 +393,7 @@ pub async fn semantic_search(
     meeting_id: Option<String>,
 ) -> Result<Vec<SemanticSearchResult>, String> {
     ensure_embedding_initialized(&app, &config, embedding.inner()).await?;
+    let limit = limit.unwrap_or(10).clamp(1, 160);
 
     // Generate query embedding
     let query_vector = {
@@ -407,7 +418,7 @@ pub async fn semantic_search(
 
     // Search vector store
     let results = vectors
-        .search(&query_vector, limit.unwrap_or(10), filter.as_deref())
+        .search(&query_vector, limit, filter.as_deref())
         .await
         .map_err(|e| e.to_string())?;
 
@@ -446,6 +457,7 @@ pub async fn semantic_search(
                 end_ms: r.end_ms,
                 chunk_index: r.chunk_index,
                 similarity: r.similarity,
+                retrieval_score: Some(r.similarity),
             }
         })
         .collect();
@@ -512,7 +524,8 @@ pub async fn hybrid_search(
     limit: Option<usize>,
     meeting_id: Option<String>,
 ) -> Result<Vec<SemanticSearchResult>, String> {
-    let limit = limit.unwrap_or(10);
+    let limit = limit.unwrap_or(10).clamp(1, 64);
+    let fusion_window = limit.saturating_mul(4).clamp(limit, 160);
 
     // Run semantic search (vector)
     let vector_results = semantic_search(
@@ -521,7 +534,7 @@ pub async fn hybrid_search(
         embedding.clone(),
         storage.clone(),
         query.clone(),
-        Some(limit * 2), // Get more results for fusion
+        Some(fusion_window),
         meeting_id.clone(),
     )
     .await?;
@@ -529,7 +542,7 @@ pub async fn hybrid_search(
     // Run FTS search
     let fts_results = {
         let storage_guard = storage.lock();
-        let search_limit = (limit * 2) as u32;
+        let search_limit = fusion_window as u32;
 
         if let Some(ref mid) = meeting_id {
             storage_guard
@@ -545,8 +558,12 @@ pub async fn hybrid_search(
     };
 
     // Merge results using Reciprocal Rank Fusion (RRF)
-    // RRF score = sum(1 / (k + rank)) where k = 60 is a constant
+    // RRF score = sum(1 / (k + rank)) where k = 60 is a robust default.
     const RRF_K: f32 = 60.0;
+    const VECTOR_RRF_WEIGHT: f32 = 1.0;
+    const FTS_RRF_WEIGHT: f32 = 1.0;
+    const TAIL_PRUNE_RATIO: f32 = 0.45;
+    const MIN_RESULTS_BEFORE_PRUNE: usize = 4;
 
     // Build a map of result key -> best merged result score.
     let mut result_map: std::collections::HashMap<String, HybridResult> =
@@ -562,7 +579,7 @@ pub async fn hybrid_search(
             result.chunk_index,
             &result.text,
         );
-        let rrf_score = 1.0 / (RRF_K + rank as f32 + 1.0);
+        let rrf_score = VECTOR_RRF_WEIGHT * (1.0 / (RRF_K + rank as f32 + 1.0));
 
         result_map
             .entry(key)
@@ -583,7 +600,7 @@ pub async fn hybrid_search(
             Some(fts_hit.segment_id),
             &fts_hit.text,
         );
-        let rrf_score = 1.0 / (RRF_K + rank as f32 + 1.0);
+        let rrf_score = FTS_RRF_WEIGHT * (1.0 / (RRF_K + rank as f32 + 1.0));
 
         result_map
             .entry(key.clone())
@@ -601,6 +618,7 @@ pub async fn hybrid_search(
                         end_ms: Some(fts_hit.end_ms),
                         chunk_index: Some(fts_hit.segment_id),
                         similarity: 0.0, // FTS doesn't have similarity score
+                        retrieval_score: Some(rrf_score),
                     },
                     rrf_score,
                 }
@@ -611,15 +629,32 @@ pub async fn hybrid_search(
     let mut merged: Vec<HybridResult> = result_map.into_values().collect();
     merged.sort_by(|a, b| b.rrf_score.total_cmp(&a.rrf_score));
 
-    // Take top N results
-    let final_results: Vec<SemanticSearchResult> =
-        merged.into_iter().take(limit).map(|hr| hr.result).collect();
+    // Drop weak tail scores after preserving a minimum candidate set.
+    let max_rrf = merged.first().map(|entry| entry.rrf_score).unwrap_or(0.0);
+    let prune_threshold = max_rrf * TAIL_PRUNE_RATIO;
+    let mut final_results = Vec::with_capacity(limit);
+
+    for (idx, mut merged_result) in merged.into_iter().enumerate() {
+        if idx >= MIN_RESULTS_BEFORE_PRUNE
+            && max_rrf > 0.0
+            && merged_result.rrf_score < prune_threshold
+        {
+            continue;
+        }
+
+        merged_result.result.retrieval_score = Some(merged_result.rrf_score);
+        final_results.push(merged_result.result);
+        if final_results.len() >= limit {
+            break;
+        }
+    }
 
     debug!(
-        "Hybrid search for '{}': {} vector + {} FTS -> {} merged results",
+        "Hybrid search for '{}': {} vector + {} FTS (window {}) -> {} merged results",
         query,
         vector_results.len(),
         fts_results.len(),
+        fusion_window,
         final_results.len()
     );
 
@@ -667,6 +702,7 @@ pub async fn adjacent_transcript_chunks(
             end_ms: chunk.end_ms,
             chunk_index: chunk.chunk_index,
             similarity: chunk.similarity,
+            retrieval_score: Some(chunk.similarity),
         })
         .collect())
 }
@@ -930,7 +966,7 @@ pub async fn batch_embed_meetings(
         let pipeline = EmbeddingPipeline::new(embedding_service.clone(), vector_store);
 
         match pipeline
-            .process_transcript(&meeting.id, segments, |_| {})
+            .process_transcript(&meeting.id, Some(&meeting.title), segments, |_| {})
             .await
         {
             Ok(_) => {
@@ -1045,6 +1081,8 @@ pub struct SemanticSearchResult {
     pub end_ms: Option<i64>,
     pub chunk_index: Option<i64>,
     pub similarity: f32,
+    /// Retrieval-stage rank signal (vector similarity or fused RRF score).
+    pub retrieval_score: Option<f32>,
 }
 
 #[cfg(test)]
@@ -1113,6 +1151,7 @@ mod tests {
                         end_ms: Some(fts_hit.end_ms),
                         chunk_index: Some(fts_hit.segment_id),
                         similarity: 0.0,
+                        retrieval_score: Some(rrf_score),
                     },
                     rrf_score,
                 });
@@ -1182,6 +1221,7 @@ mod tests {
                 end_ms: Some(142_000),
                 chunk_index: Some(8),
                 similarity: 0.86,
+                retrieval_score: Some(0.86),
             },
             SemanticSearchResult {
                 id: "vec-2".to_string(),
@@ -1193,6 +1233,7 @@ mod tests {
                 end_ms: Some(48_000),
                 chunk_index: Some(2),
                 similarity: 0.74,
+                retrieval_score: Some(0.74),
             },
         ];
         let fts_hits = vec![FtsStub {
@@ -1222,6 +1263,7 @@ mod tests {
                 end_ms: Some(324_000),
                 chunk_index: Some(17),
                 similarity: 0.79,
+                retrieval_score: Some(0.79),
             },
             SemanticSearchResult {
                 id: "vec-b".to_string(),
@@ -1233,6 +1275,7 @@ mod tests {
                 end_ms: Some(228_000),
                 chunk_index: Some(12),
                 similarity: 0.75,
+                retrieval_score: Some(0.75),
             },
         ];
         let fts_hits = vec![FtsStub {

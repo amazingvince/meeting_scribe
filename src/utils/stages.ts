@@ -11,6 +11,8 @@ export function processingStageLabel(stage: string): string {
       return 'Transcribing system audio';
     case 'Merging':
       return 'Merging transcript channels';
+    case 'GeneratingTitle':
+      return 'Generating meeting title';
     case 'Complete':
       return 'Transcript processing complete';
     case 'Failed':

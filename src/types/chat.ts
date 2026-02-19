@@ -36,6 +36,10 @@ export interface ChatSource {
   end_ms?: number | null;
   /** Similarity score (0-1) */
   similarity: number;
+  /** Source chunk type (transcript/fts/note/summary) */
+  chunk_type?: string;
+  /** Chunk index when available */
+  chunk_index?: number | null;
 }
 
 /** Chat session */
@@ -65,6 +69,7 @@ export interface SemanticSearchResult {
   end_ms: number | null;
   chunk_index: number | null;
   similarity: number;
+  retrieval_score?: number | null;
 }
 
 /** Chat input state */

@@ -16,11 +16,40 @@ import { modelManager } from '../lib/modelManager';
 /** Maximum number of history messages to include in context */
 const MAX_HISTORY_MESSAGES = 6;
 const MAX_RETRIEVAL_CONTEXT_CHUNKS = 10;
-const MEETING_SCOPED_RETRIEVAL_LIMIT = 6;
-const GLOBAL_RETRIEVAL_LIMIT = 12;
+const MAX_RETRIEVAL_CANDIDATES = 20;
+const MEETING_SCOPED_RETRIEVAL_LIMIT = 8;
+const GLOBAL_RETRIEVAL_LIMIT = 16;
+const MAX_QUERY_VARIANTS = 2;
 const MAX_ADJACENT_ANCHORS = 6;
 const ADJACENT_CHUNK_RADIUS = 1;
 const ADJACENT_PER_ANCHOR_LIMIT = 5;
+const QUERY_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'and',
+  'or',
+  'to',
+  'for',
+  'in',
+  'on',
+  'at',
+  'of',
+  'with',
+  'about',
+  'from',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'this',
+  'that',
+  'it',
+  'we',
+  'i',
+  'you',
+]);
 
 /** Convert chat messages to history format for LLM */
 function getHistoryForLlm(messages: ChatMessage[]): ChatHistoryMessage[] {
@@ -42,6 +71,8 @@ function mapSearchResultsToSources(results: SemanticSearchResult[]): ChatSource[
     start_ms: r.start_ms,
     end_ms: r.end_ms,
     similarity: r.similarity,
+    chunk_type: r.chunk_type,
+    chunk_index: r.chunk_index,
   }));
 }
 
@@ -61,11 +92,23 @@ function retrievalResultKey(result: SemanticSearchResult): string {
   return `${result.meeting_id}::${result.chunk_type}::${chunkKey}`;
 }
 
+function hitSignal(hit: SemanticSearchResult): number {
+  const retrievalScore = hit.retrieval_score;
+  if (
+    typeof retrievalScore === 'number' &&
+    Number.isFinite(retrievalScore) &&
+    retrievalScore > 0
+  ) {
+    return retrievalScore;
+  }
+  return Number.isFinite(hit.similarity) ? Math.max(0, hit.similarity) : 0;
+}
+
 function rankRetrievalHit(hit: SemanticSearchResult, rankIndex: number): number {
   const rankScore = 1 / (rankIndex + 1);
-  const similarityScore = Number.isFinite(hit.similarity) ? Math.max(0, hit.similarity) : 0;
-  const lexicalBoost = hit.chunk_type === 'fts' ? 0.06 : 0;
-  return rankScore + similarityScore * 0.35 + lexicalBoost;
+  const signal = hitSignal(hit);
+  const lexicalBoost = hit.chunk_type === 'fts' ? 0.04 : 0;
+  return signal * 0.7 + rankScore * 0.25 + lexicalBoost;
 }
 
 function rankAndDedupeResults(
@@ -90,6 +133,79 @@ function rankAndDedupeResults(
   return [...bestByKey.values()]
     .sort((a, b) => b.score - a.score)
     .map((entry) => entry.hit);
+}
+
+function buildQueryVariants(rawQuery: string): string[] {
+  const normalized = rawQuery.trim().replace(/\s+/g, ' ');
+  if (!normalized) {
+    return [];
+  }
+
+  const variants = [normalized];
+  const terms = normalized.split(' ');
+  if (terms.length >= 4) {
+    const focusedTerms = terms.filter(
+      (term) => !QUERY_STOP_WORDS.has(term.toLowerCase())
+    );
+    if (focusedTerms.length >= 2 && focusedTerms.length < terms.length) {
+      variants.push(focusedTerms.join(' '));
+    }
+  }
+
+  return [...new Set(variants)].slice(0, MAX_QUERY_VARIANTS);
+}
+
+function pruneWeakTail(results: SemanticSearchResult[]): SemanticSearchResult[] {
+  if (results.length <= 4) {
+    return results;
+  }
+
+  const maxSignal = Math.max(...results.map(hitSignal));
+  if (!Number.isFinite(maxSignal) || maxSignal <= 0) {
+    return results;
+  }
+
+  const minimumSignal = maxSignal * 0.55;
+  return results.filter((hit, index) => index < 4 || hitSignal(hit) >= minimumSignal);
+}
+
+function diversifyByMeeting(
+  results: SemanticSearchResult[],
+  targetCount: number
+): SemanticSearchResult[] {
+  const selected: SemanticSearchResult[] = [];
+  const overflow: SemanticSearchResult[] = [];
+  const perMeetingCount = new Map<string, number>();
+
+  for (const hit of results) {
+    const count = perMeetingCount.get(hit.meeting_id) ?? 0;
+    if (count < 2) {
+      selected.push(hit);
+      perMeetingCount.set(hit.meeting_id, count + 1);
+    } else {
+      overflow.push(hit);
+    }
+  }
+
+  if (selected.length < targetCount) {
+    for (const hit of overflow) {
+      selected.push(hit);
+      if (selected.length >= targetCount) {
+        break;
+      }
+    }
+  }
+
+  return selected.slice(0, targetCount);
+}
+
+function selectContextChunks(results: SemanticSearchResult[]): SemanticSearchResult[] {
+  const withTimestamps = results.filter((hit) => hit.start_ms !== null);
+  const withoutTimestamps = results.filter((hit) => hit.start_ms === null);
+  return [...withTimestamps, ...withoutTimestamps].slice(
+    0,
+    MAX_RETRIEVAL_CONTEXT_CHUNKS
+  );
 }
 
 function toRetrievedContextChunks(
@@ -164,8 +280,11 @@ async function searchAcrossMeetings(
   query: string,
   limit: number
 ): Promise<SemanticSearchResult[]> {
-  const results = await api.hybridSearch(query, limit);
-  return rankAndDedupeResults([results]);
+  const queryVariants = buildQueryVariants(query);
+  const resultLists = await Promise.all(
+    queryVariants.map((variant) => api.hybridSearch(variant, limit))
+  );
+  return rankAndDedupeResults(resultLists);
 }
 
 async function retrieveRelevantChunks(
@@ -181,7 +300,9 @@ async function retrieveRelevantChunks(
     return [];
   }
 
-  return expandWithAdjacentContext(initialResults);
+  const expanded = await expandWithAdjacentContext(initialResults);
+  const pruned = pruneWeakTail(expanded);
+  return diversifyByMeeting(pruned, MAX_RETRIEVAL_CANDIDATES);
 }
 
 interface ChatStore {
@@ -261,7 +382,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const retrieved = await retrieveRelevantChunks(content, selectedMeetingIds);
 
       if (retrieved.length > 0) {
-        const topChunks = retrieved.slice(0, MAX_RETRIEVAL_CONTEXT_CHUNKS);
+        const topChunks = selectContextChunks(retrieved);
         answer = await api.answerWithRetrieval(
           content,
           toRetrievedContextChunks(topChunks),
@@ -405,7 +526,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         return;
       }
 
-      const topChunks = retrieved.slice(0, MAX_RETRIEVAL_CONTEXT_CHUNKS);
+      const topChunks = selectContextChunks(retrieved);
       const sources = mapSearchResultsToSources(topChunks);
 
       set((state) => {
@@ -492,10 +613,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       const expanded = await expandWithAdjacentContext(
         rankAndDedupeResults([retrieved])
       );
-      const topChunks = expanded.slice(
-        0,
-        MAX_RETRIEVAL_CONTEXT_CHUNKS
-      );
+      const topChunks = selectContextChunks(expanded);
 
       const answer =
         topChunks.length > 0

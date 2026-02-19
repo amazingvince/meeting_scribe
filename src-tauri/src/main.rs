@@ -13,7 +13,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 #[cfg(debug_assertions)]
 use tauri::Manager;
-use tracing::info;
+use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]

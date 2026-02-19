@@ -56,10 +56,14 @@ macOS bundle signing uses `src-tauri/entitlements.plist`, which explicitly disab
 - Grant Microphone permission when prompted.
 - Grant System Audio Capture permission when prompted (macOS Process Tap).
 - On macOS 14.2+, app tries native CoreAudio Process Tap first.
+- In `auto` backend mode, if system-audio capture cannot initialize, recording now continues as mic-only (with warnings in logs) instead of hard-failing startup.
 - Dev-mode caveat: when launched from some terminal apps, macOS may attribute audio-capture permission to the terminal bundle. If that bundle does not declare `NSAudioCaptureUsageDescription`, Process Tap will be denied and output silence.
 - If this happens, run a built `.app` bundle (`pnpm tauri build --debug`, then open the app from Finder) and grant System Audio Recording to `meeting-scribe`.
 - If Process Tap is unavailable, install a loopback input device (BlackHole, Loopback, Soundflower, or Background Music) as fallback.
 - Optionally set `MEETING_SCRIBE_SYSTEM_AUDIO_DEVICE` to force a specific input device match.
+- Optionally set `MEETING_SCRIBE_MIC_DEVICE` to force a specific microphone input device when macOS default input is a loopback/virtual device.
+- Real-time mic cleanup is enabled by default. Set `MEETING_SCRIBE_ENABLE_REALTIME_MIC_CLEANUP=0` to disable temporarily for troubleshooting.
+- Cleaned mic playback path updates are enabled by default. Set `MEETING_SCRIBE_USE_CLEANED_MIC_PLAYBACK=0` to keep raw mic playback path.
 - Optional backend override: `MEETING_SCRIBE_MACOS_SYSTEM_AUDIO_BACKEND=process_tap|loopback|auto`.
 - Optional echo backend override for transcription cleanup: `MEETING_SCRIBE_ECHO_BACKEND=webrtc_aec3|speex`.
 - Optional real-time cleanup backend override (recording-time AEC): `MEETING_SCRIBE_REALTIME_ECHO_BACKEND=webrtc_aec3|speex` (macOS defaults to WebRTC if unset).

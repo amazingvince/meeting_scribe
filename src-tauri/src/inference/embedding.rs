@@ -87,14 +87,38 @@ impl EmbeddingService {
             .context("No embedding generated")
     }
 
+    /// Generate document embeddings with optional title context.
+    ///
+    /// EmbeddingGemma retrieval-document prompts support a title field and report
+    /// improved quality when available.
+    pub fn embed_documents_with_title(
+        &self,
+        texts: &[&str],
+        title: Option<&str>,
+    ) -> Result<Vec<Vec<f32>>> {
+        self.embed_batch_internal(texts, EmbeddingTask::Document, title)
+    }
+
     /// Generate embeddings for multiple texts (batched for efficiency)
     pub fn embed_batch(&self, texts: &[&str], task: EmbeddingTask) -> Result<Vec<Vec<f32>>> {
+        self.embed_batch_internal(texts, task, None)
+    }
+
+    fn embed_batch_internal(
+        &self,
+        texts: &[&str],
+        task: EmbeddingTask,
+        title: Option<&str>,
+    ) -> Result<Vec<Vec<f32>>> {
         if texts.is_empty() {
             return Ok(Vec::new());
         }
 
         // Apply task-specific prompts
-        let prompted_texts: Vec<String> = texts.iter().map(|t| task.apply_prompt(t)).collect();
+        let prompted_texts: Vec<String> = texts
+            .iter()
+            .map(|t| task.apply_prompt_with_title(t, title))
+            .collect();
 
         // Tokenize all texts
         let encodings = self
@@ -262,12 +286,31 @@ pub enum EmbeddingTask {
 impl EmbeddingTask {
     /// Apply task-specific prompt per EmbeddingGemma requirements
     pub fn apply_prompt(&self, text: &str) -> String {
+        self.apply_prompt_with_title(text, None)
+    }
+
+    /// Apply task-specific prompt and optional title context.
+    pub fn apply_prompt_with_title(&self, text: &str, title: Option<&str>) -> String {
         match self {
-            Self::Document => format!("title: none | text: {}", text),
+            Self::Document => {
+                let title = title
+                    .map(sanitize_document_title)
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| "none".to_string());
+                format!("title: {} | text: {}", title, text)
+            }
             Self::Search => format!("task: search result | query: {}", text),
             Self::QuestionAnswering => format!("task: question answering | query: {}", text),
         }
     }
+}
+
+fn sanitize_document_title(title: &str) -> String {
+    title
+        .replace('|', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Calculate cosine similarity between two embeddings
@@ -362,6 +405,10 @@ mod tests {
         let doc_prompt = EmbeddingTask::Document.apply_prompt(text);
         assert!(doc_prompt.contains("title: none | text:"));
 
+        let titled_doc_prompt =
+            EmbeddingTask::Document.apply_prompt_with_title(text, Some("Roadmap | Planning"));
+        assert!(titled_doc_prompt.contains("title: Roadmap Planning | text:"));
+
         let search_prompt = EmbeddingTask::Search.apply_prompt(text);
         assert!(search_prompt.contains("task: search result | query:"));
 
@@ -372,5 +419,11 @@ mod tests {
     #[test]
     fn test_embedding_task_default() {
         assert_eq!(EmbeddingTask::default(), EmbeddingTask::Document);
+    }
+
+    #[test]
+    fn test_sanitize_document_title() {
+        let sanitized = sanitize_document_title("  Team | Sync  -  Weekly ");
+        assert_eq!(sanitized, "Team Sync - Weekly");
     }
 }

@@ -53,19 +53,30 @@ export function ChatMessage({ message, onSourceClick }: ChatMessageProps) {
 
         {/* Sources */}
         {message.sources && message.sources.length > 0 && (
-          <div className="mt-3 flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] text-muted-foreground/60">
-              Sources:
-            </span>
-            {message.sources.map((source, idx) => (
-              <SourceBadge
-                key={idx}
-                source={source}
-                onClick={() =>
-                  onSourceClick?.(source.meeting_id, source.start_ms)
-                }
-              />
-            ))}
+          <div className="mt-3 space-y-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] text-muted-foreground/60">
+                Sources:
+              </span>
+              {message.sources.map((source, idx) => (
+                <SourceBadge
+                  key={`${source.meeting_id}:${source.start_ms ?? idx}`}
+                  source={source}
+                  onClick={() =>
+                    onSourceClick?.(source.meeting_id, source.start_ms)
+                  }
+                />
+              ))}
+            </div>
+            <div className="space-y-1.5">
+              {message.sources.slice(0, 5).map((source, idx) => (
+                <SourceExcerpt
+                  key={`excerpt:${source.meeting_id}:${source.start_ms ?? idx}`}
+                  source={source}
+                  onClick={() => onSourceClick?.(source.meeting_id, source.start_ms)}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -158,6 +169,7 @@ function SourceBadge({ source, onClick }: SourceBadgeProps) {
   return (
     <button
       onClick={onClick}
+      title={truncateExcerpt(source.excerpt)}
       className="inline-flex items-center gap-1 text-[11px] py-0 px-2 rounded-full bg-secondary text-secondary-foreground hover:bg-accent transition-colors cursor-pointer"
     >
       <ExternalLink className="w-2.5 h-2.5" />
@@ -165,4 +177,42 @@ function SourceBadge({ source, onClick }: SourceBadgeProps) {
       {timeLabel ? ` · ${timeLabel}` : ''}
     </button>
   );
+}
+
+interface SourceExcerptProps {
+  source: ChatSource;
+  onClick: () => void;
+}
+
+function SourceExcerpt({ source, onClick }: SourceExcerptProps) {
+  const timeLabel =
+    source.start_ms !== null
+      ? source.end_ms != null
+        ? `${formatDuration(source.start_ms)}-${formatDuration(source.end_ms)}`
+        : formatDuration(source.start_ms)
+      : 'open';
+
+  return (
+    <button
+      type="button"
+      className="w-full rounded-md border border-border/70 bg-card/40 px-2.5 py-2 text-left text-xs transition-colors hover:bg-accent/40"
+      onClick={onClick}
+    >
+      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+        <span className="truncate">{source.meeting_title || 'Meeting'}</span>
+        <span className="font-mono text-brand">{timeLabel}</span>
+      </div>
+      <p className="mt-1 line-clamp-2 text-foreground/90">
+        {truncateExcerpt(source.excerpt)}
+      </p>
+    </button>
+  );
+}
+
+function truncateExcerpt(text: string, maxLength = 180): string {
+  const compact = text.replace(/\s+/g, ' ').trim();
+  if (compact.length <= maxLength) {
+    return compact;
+  }
+  return `${compact.slice(0, maxLength - 1).trimEnd()}…`;
 }

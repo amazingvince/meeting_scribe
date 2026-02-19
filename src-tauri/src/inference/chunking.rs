@@ -8,7 +8,13 @@ use crate::inference::transcription::Speaker;
 pub const MAX_CHUNK_CHARS: usize = 2000;
 
 /// Overlap between chunks for context continuity
-pub const CHUNK_OVERLAP: usize = 200;
+pub const CHUNK_OVERLAP: usize = 500;
+
+/// Maximum transcript span (ms) represented by a single chunk.
+///
+/// Keeping chunk timespans bounded avoids over-broad chunks on low-density speech
+/// and improves timestamp-specific retrieval for playback jumps.
+pub const MAX_CHUNK_DURATION_MS: i64 = 120_000;
 
 /// Minimum chunk size (don't create tiny fragments)
 pub const MIN_CHUNK_CHARS: usize = 100;
@@ -108,13 +114,18 @@ pub fn chunk_transcript(segments: &[TranscriptSegmentInput], max_chars: usize) -
     let mut current_segment_indexes = Vec::new();
     let mut current_len = 0usize;
     let mut chunk_index = 0;
+    let mut current_start_ms: Option<i64> = None;
 
     for (idx, segment) in segments.iter().enumerate() {
         let segment_len = transcript_segment_len(segment);
-        let would_exceed =
+        let would_exceed_chars =
             !current_segment_indexes.is_empty() && current_len + segment_len > max_chars;
+        let would_exceed_duration = current_start_ms
+            .map(|start| segment.end_ms - start > MAX_CHUNK_DURATION_MS)
+            .unwrap_or(false)
+            && !current_segment_indexes.is_empty();
 
-        if would_exceed {
+        if would_exceed_chars || would_exceed_duration {
             if let Some(chunk) =
                 build_transcript_chunk(segments, &current_segment_indexes, chunk_index)
             {
@@ -122,16 +133,30 @@ pub fn chunk_transcript(segments: &[TranscriptSegmentInput], max_chars: usize) -
                 chunk_index += 1;
             }
 
-            current_segment_indexes =
-                overlap_segment_indexes(segments, &current_segment_indexes, CHUNK_OVERLAP);
-            current_len = current_segment_indexes
-                .iter()
-                .map(|segment_idx| transcript_segment_len(&segments[*segment_idx]))
-                .sum();
-            if current_len > max_chars {
+            if would_exceed_duration {
                 current_segment_indexes.clear();
                 current_len = 0;
+                current_start_ms = None;
+            } else {
+                current_segment_indexes =
+                    overlap_segment_indexes(segments, &current_segment_indexes, CHUNK_OVERLAP);
+                current_len = current_segment_indexes
+                    .iter()
+                    .map(|segment_idx| transcript_segment_len(&segments[*segment_idx]))
+                    .sum();
+                current_start_ms = current_segment_indexes
+                    .first()
+                    .map(|segment_idx| segments[*segment_idx].start_ms);
+                if current_len > max_chars {
+                    current_segment_indexes.clear();
+                    current_len = 0;
+                    current_start_ms = None;
+                }
             }
+        }
+
+        if current_segment_indexes.is_empty() {
+            current_start_ms = Some(segment.start_ms);
         }
 
         current_segment_indexes.push(idx);
@@ -143,9 +168,19 @@ pub fn chunk_transcript(segments: &[TranscriptSegmentInput], max_chars: usize) -
         if chunk.text.len() >= MIN_CHUNK_CHARS || chunks.is_empty() {
             chunks.push(chunk);
         } else if let Some(previous) = chunks.last_mut() {
-            previous.text.push('\n');
-            previous.text.push_str(&chunk.text);
-            previous.end_ms = chunk.end_ms;
+            let gap_ms = match (previous.end_ms, chunk.start_ms) {
+                (Some(previous_end), Some(next_start)) => next_start.saturating_sub(previous_end),
+                _ => 0,
+            };
+            // Keep short trailing chunks when they represent a distinct time range;
+            // this preserves precise timestamp navigation and chunk locality.
+            if gap_ms <= 20_000 {
+                previous.text.push('\n');
+                previous.text.push_str(&chunk.text);
+                previous.end_ms = chunk.end_ms;
+            } else {
+                chunks.push(chunk);
+            }
         }
     }
 
@@ -402,6 +437,36 @@ mod tests {
 
         // Should create multiple chunks
         assert!(chunks.len() >= 2);
+    }
+
+    #[test]
+    fn test_chunk_transcript_respects_duration_boundary() {
+        let segments = vec![
+            TranscriptSegmentInput {
+                text: "Kickoff updates".to_string(),
+                start_ms: 0,
+                end_ms: 1_000,
+                speaker: Some(Speaker::You),
+            },
+            TranscriptSegmentInput {
+                text: "Roadmap discussion".to_string(),
+                start_ms: 60_000,
+                end_ms: 61_000,
+                speaker: Some(Speaker::Others),
+            },
+            TranscriptSegmentInput {
+                text: "Budget review".to_string(),
+                start_ms: 181_000,
+                end_ms: 182_000,
+                speaker: Some(Speaker::You),
+            },
+        ];
+
+        let chunks = chunk_transcript(&segments, MAX_CHUNK_CHARS);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].start_ms, Some(0));
+        assert_eq!(chunks[0].end_ms, Some(61_000));
+        assert_eq!(chunks[1].start_ms, Some(181_000));
     }
 
     #[test]

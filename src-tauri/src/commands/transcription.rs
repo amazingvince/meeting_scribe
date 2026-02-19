@@ -13,6 +13,7 @@ use crate::inference::{
 use crate::models::{DownloadProgress, ModelManager, ModelStatus, TranscriptionBackend};
 use crate::storage::{MeetingStatus, StoredSegment};
 
+use super::llm::SharedLlmService;
 use super::recording::SharedRecordingSession;
 use super::storage::SharedStorageState;
 
@@ -269,6 +270,7 @@ pub fn transcribe_file(
 pub async fn process_meeting(
     app: AppHandle,
     transcription: tauri::State<'_, SharedTranscriptionService>,
+    llm: tauri::State<'_, SharedLlmService>,
     storage: tauri::State<'_, SharedStorageState>,
     meeting_id: String,
     mic_path: Option<String>,
@@ -276,6 +278,7 @@ pub async fn process_meeting(
     options: Option<ProcessMeetingOptions>,
 ) -> Result<ProcessingResult, String> {
     let transcription = transcription.inner().clone();
+    let llm = llm.inner().clone();
     let storage = storage.inner().clone();
     let app_handle = app.clone();
     let meeting_id_for_event = meeting_id.clone();
@@ -284,6 +287,7 @@ pub async fn process_meeting(
         process_meeting_blocking(
             &app_handle,
             &transcription,
+            &llm,
             &storage,
             meeting_id,
             mic_path,
@@ -358,6 +362,7 @@ pub async fn process_meeting(
 fn process_meeting_blocking(
     app: &AppHandle,
     transcription: &SharedTranscriptionService,
+    llm: &SharedLlmService,
     storage: &SharedStorageState,
     meeting_id: String,
     mic_path: Option<String>,
@@ -405,10 +410,18 @@ fn process_meeting_blocking(
     let backend = transcription.backend();
     let requested_echo_backend = options.and_then(|o| o.echo_backend);
     let echo_backend = resolve_echo_backend(requested_echo_backend);
+    let prefer_cleaned_mic_playback = std::env::var("MEETING_SCRIBE_USE_CLEANED_MIC_PLAYBACK")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .map(|value| !matches!(value.as_str(), "0" | "false" | "no" | "off"))
+        .unwrap_or(true);
     info!(
         "Echo cancellation backend selected: {}",
         echo_backend.as_str()
     );
+    if !prefer_cleaned_mic_playback {
+        info!("Using raw microphone audio playback path via MEETING_SCRIBE_USE_CLEANED_MIC_PLAYBACK=0");
+    }
 
     // Emit progress: starting
     let _ = app.emit(
@@ -510,7 +523,7 @@ fn process_meeting_blocking(
                     echo_info.backend_used.as_str(),
                     echo_info.fallback_used
                 );
-                let processed =
+                let mut processed =
                     suppress_residual_echo(&processed, &aligned_reference, WHISPER_SAMPLE_RATE);
 
                 let input_rms = rms(&mic_samples);
@@ -525,6 +538,14 @@ fn process_meeting_blocking(
                     input_rms, output_rms, attenuation_db
                 );
 
+                if input_rms > 0.0 && output_rms < input_rms * 0.10 {
+                    warn!(
+                        "AEC output attenuation too strong for mic source (in={:.5}, out={:.5}, attenuation={:.2}dB); falling back to raw mic audio",
+                        input_rms, output_rms, attenuation_db
+                    );
+                    processed = mic_samples.clone();
+                }
+
                 info!(
                     "AEC complete: {} input samples -> {} output samples",
                     mic_samples.len(),
@@ -532,6 +553,7 @@ fn process_meeting_blocking(
                 );
                 processed
             } else {
+                info!("Skipping AEC for mic: no usable system-audio reference available");
                 mic_samples
             }
         } else {
@@ -575,7 +597,7 @@ fn process_meeting_blocking(
     }
 
     // Transcribe system audio (no AEC needed - this is the reference)
-    if let Some(path) = system_path.as_ref() {
+    if let Some(system_samples) = system_samples {
         let _ = app.emit(
             "meeting-processing-progress",
             serde_json::json!({
@@ -587,7 +609,7 @@ fn process_meeting_blocking(
         );
 
         system_segments = transcription
-            .transcribe_file_with_speaker(path, Speaker::Others)
+            .transcribe_samples_with_speaker(system_samples, Speaker::Others)
             .map_err(|e| e.to_string())?;
 
         if let Some(last) = system_segments.last() {
@@ -595,6 +617,8 @@ fn process_meeting_blocking(
         }
 
         info!("System transcription: {} segments", system_segments.len());
+    } else if system_path.is_some() {
+        info!("Skipping system-audio transcription: no usable system reference was captured");
     }
 
     if mic_segments.is_empty() && system_segments.is_empty() {
@@ -650,42 +674,67 @@ fn process_meeting_blocking(
             meeting_id
         );
 
-        if let Some(cleaned_mic_path) = cleaned_mic_playback_path.as_ref() {
-            let cleaned_path_str = cleaned_mic_path.display().to_string();
-            match repos.meetings.get(&meeting_id) {
-                Ok(Some(mut meeting)) => {
-                    let needs_update =
-                        meeting.audio_path_you.as_deref() != Some(cleaned_path_str.as_str());
-                    if needs_update {
-                        meeting.audio_path_you = Some(cleaned_path_str);
-                        meeting.touch();
-                        if let Err(e) = repos.meetings.update(&meeting) {
-                            warn!(
-                                "Failed to update meeting {} mic playback path to cleaned file: {}",
-                                meeting_id, e
-                            );
-                        } else {
-                            info!(
-                                "Updated meeting {} mic playback path to cleaned audio",
-                                meeting_id
-                            );
+        if prefer_cleaned_mic_playback {
+            if let Some(cleaned_mic_path) = cleaned_mic_playback_path.as_ref() {
+                let cleaned_path_str = cleaned_mic_path.display().to_string();
+                match repos.meetings.get(&meeting_id) {
+                    Ok(Some(mut meeting)) => {
+                        let needs_update =
+                            meeting.audio_path_you.as_deref() != Some(cleaned_path_str.as_str());
+                        if needs_update {
+                            meeting.audio_path_you = Some(cleaned_path_str);
+                            meeting.touch();
+                            if let Err(e) = repos.meetings.update(&meeting) {
+                                warn!(
+                                    "Failed to update meeting {} mic playback path to cleaned file: {}",
+                                    meeting_id, e
+                                );
+                            } else {
+                                info!(
+                                    "Updated meeting {} mic playback path to cleaned audio",
+                                    meeting_id
+                                );
+                            }
                         }
                     }
-                }
-                Ok(None) => {
-                    warn!(
-                        "Meeting {} not found while setting cleaned mic playback path",
-                        meeting_id
-                    );
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to load meeting {} while setting cleaned mic playback path: {}",
-                        meeting_id, e
-                    );
+                    Ok(None) => {
+                        warn!(
+                            "Meeting {} not found while setting cleaned mic playback path",
+                            meeting_id
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to load meeting {} while setting cleaned mic playback path: {}",
+                            meeting_id, e
+                        );
+                    }
                 }
             }
+        } else if let Some(cleaned_mic_path) = cleaned_mic_playback_path.as_ref() {
+            info!(
+                "Retaining raw mic playback path for meeting {} (cleaned audio written to {})",
+                meeting_id,
+                cleaned_mic_path.display()
+            );
         }
+    }
+
+    let _ = app.emit(
+        "meeting-processing-progress",
+        serde_json::json!({
+            "meeting_id": meeting_id,
+            "stage": "GeneratingTitle",
+            "percent": 92.0,
+            "message": "Generating meeting title..."
+        }),
+    );
+
+    if let Err(e) = maybe_auto_title_meeting(storage, llm, &meeting_id, &transcript) {
+        warn!(
+            "Meeting {} title generation step failed (continuing): {}",
+            meeting_id, e
+        );
     }
 
     // Calculate speech ratio
@@ -736,6 +785,7 @@ fn process_meeting_blocking(
 pub async fn start_meeting_processing(
     app: AppHandle,
     transcription: tauri::State<'_, SharedTranscriptionService>,
+    llm: tauri::State<'_, SharedLlmService>,
     storage: tauri::State<'_, SharedStorageState>,
     meeting_id: String,
     mic_path: Option<String>,
@@ -743,6 +793,7 @@ pub async fn start_meeting_processing(
     options: Option<ProcessMeetingOptions>,
 ) -> Result<(), String> {
     let transcription = transcription.inner().clone();
+    let llm = llm.inner().clone();
     let storage = storage.inner().clone();
 
     if !transcription.is_ready() {
@@ -768,6 +819,7 @@ pub async fn start_meeting_processing(
         let processing_outcome = tokio::task::spawn_blocking({
             let app_for_worker = app_for_task.clone();
             let transcription_for_worker = transcription.clone();
+            let llm_for_worker = llm.clone();
             let storage_for_worker = storage.clone();
             let meeting_id_for_worker = meeting_id_for_task.clone();
             let mic_path_for_worker = mic_path.clone();
@@ -778,6 +830,7 @@ pub async fn start_meeting_processing(
                 process_meeting_blocking(
                     &app_for_worker,
                     &transcription_for_worker,
+                    &llm_for_worker,
                     &storage_for_worker,
                     meeting_id_for_worker,
                     mic_path_for_worker,
@@ -989,6 +1042,228 @@ fn update_meeting_status(
         .map_err(|e| e.to_string())
 }
 
+fn maybe_auto_title_meeting(
+    storage: &SharedStorageState,
+    llm: &SharedLlmService,
+    meeting_id: &str,
+    transcript: &[TranscriptSegment],
+) -> Result<(), String> {
+    if transcript.is_empty() {
+        return Ok(());
+    }
+
+    let mut meeting = {
+        let storage_guard = storage.lock();
+        storage_guard
+            .repositories()
+            .meetings
+            .get(meeting_id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Meeting not found while titling: {}", meeting_id))?
+    };
+
+    if !should_auto_title(&meeting.title) {
+        return Ok(());
+    }
+
+    let transcript_excerpt = transcript_excerpt_for_title(transcript);
+    if transcript_excerpt.is_empty() {
+        return Ok(());
+    }
+
+    let generated_title = try_generate_llm_title(llm, &transcript_excerpt)
+        .or_else(|| generate_fallback_title(&transcript_excerpt));
+
+    let Some(next_title) = generated_title else {
+        return Ok(());
+    };
+
+    if next_title == meeting.title {
+        return Ok(());
+    }
+
+    meeting.title = next_title;
+    meeting.touch();
+
+    {
+        let storage_guard = storage.lock();
+        storage_guard
+            .repositories()
+            .meetings
+            .update(&meeting)
+            .map_err(|e| e.to_string())?;
+    }
+
+    info!("Auto-generated title for meeting {}", meeting_id);
+    Ok(())
+}
+
+fn should_auto_title(current_title: &str) -> bool {
+    let trimmed = current_title.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    if lower == "meeting" || lower == "untitled meeting" {
+        return true;
+    }
+
+    let Some(suffix) = trimmed.strip_prefix("Meeting ") else {
+        return false;
+    };
+
+    looks_like_timestamp_title_suffix(suffix)
+}
+
+fn looks_like_timestamp_title_suffix(suffix: &str) -> bool {
+    let value = suffix.trim();
+    if value.is_empty() {
+        return true;
+    }
+
+    let has_digit = value.chars().any(|c| c.is_ascii_digit());
+    if !has_digit {
+        return false;
+    }
+
+    let has_date_separator = value.contains('/') || value.contains('-') || value.contains(',');
+    let has_clock = value.contains(':');
+    let upper = value.to_ascii_uppercase();
+    let has_ampm = upper.contains(" AM") || upper.contains(" PM");
+
+    has_date_separator && (has_clock || has_ampm)
+}
+
+fn transcript_excerpt_for_title(transcript: &[TranscriptSegment]) -> String {
+    let mut excerpt = String::new();
+    for segment in transcript.iter().take(24) {
+        if segment.text.trim().is_empty() {
+            continue;
+        }
+        if !excerpt.is_empty() {
+            excerpt.push(' ');
+        }
+        excerpt.push_str(segment.text.trim());
+        if excerpt.len() >= 2200 {
+            break;
+        }
+    }
+    excerpt
+}
+
+fn try_generate_llm_title(llm: &SharedLlmService, transcript_excerpt: &str) -> Option<String> {
+    let service = llm.lock();
+    if !service.is_loaded() {
+        return None;
+    }
+
+    let summarizer = crate::inference::summarization::SummarizationService::new(&service);
+    match summarizer.generate_title(transcript_excerpt) {
+        Ok(title) => normalize_generated_title(&title),
+        Err(e) => {
+            warn!(
+                "LLM title generation failed, falling back to heuristic title: {}",
+                e
+            );
+            None
+        }
+    }
+}
+
+fn generate_fallback_title(transcript_excerpt: &str) -> Option<String> {
+    const MAX_WORDS: usize = 8;
+
+    let sentence = transcript_excerpt
+        .split(['.', '!', '?', '\n'])
+        .map(str::trim)
+        .find(|candidate| candidate.split_whitespace().count() >= 3)?;
+
+    let mut words: Vec<String> = sentence
+        .split_whitespace()
+        .map(clean_word_for_title)
+        .filter(|w| !w.is_empty())
+        .collect();
+
+    while let Some(first) = words.first() {
+        if !is_leading_filler_word(first) {
+            break;
+        }
+        words.remove(0);
+    }
+
+    if words.len() < 2 {
+        return None;
+    }
+
+    let candidate = words
+        .into_iter()
+        .take(MAX_WORDS)
+        .map(|word| title_case_ascii(&word))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    normalize_generated_title(&candidate)
+}
+
+fn clean_word_for_title(word: &str) -> String {
+    word.trim_matches(|c: char| !c.is_ascii_alphanumeric())
+        .to_ascii_lowercase()
+}
+
+fn is_leading_filler_word(word: &str) -> bool {
+    matches!(
+        word,
+        "uh" | "um"
+            | "okay"
+            | "ok"
+            | "so"
+            | "hi"
+            | "hello"
+            | "hey"
+            | "thanks"
+            | "thank"
+            | "everyone"
+            | "team"
+            | "today"
+            | "meeting"
+            | "call"
+    )
+}
+
+fn title_case_ascii(word: &str) -> String {
+    let mut chars = word.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut output = String::new();
+    output.push(first.to_ascii_uppercase());
+    output.extend(chars.map(|c| c.to_ascii_lowercase()));
+    output
+}
+
+fn normalize_generated_title(raw: &str) -> Option<String> {
+    let compact = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut title = compact
+        .trim_matches('"')
+        .trim_matches('*')
+        .trim_matches('-')
+        .trim_matches(':')
+        .trim()
+        .to_string();
+
+    if title.len() < 4 {
+        return None;
+    }
+
+    if title.chars().count() > 80 {
+        let truncated: String = title.chars().take(80).collect();
+        title = truncated.trim_end().to_string();
+    }
+
+    Some(title)
+}
+
 fn emit_processing_finished(app: &AppHandle, payload: MeetingProcessingFinishedEvent) {
     if let Err(e) = app.emit("meeting-processing-finished", &payload) {
         warn!("Failed to emit meeting-processing-finished event: {}", e);
@@ -1165,9 +1440,10 @@ pub fn delete_transcription_model(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_segment_offset, derive_cleaned_mic_path, resolve_existing_clean_mic_path,
-        resolve_mic_processing_input_path, resolve_mic_processing_path,
-        MeetingProcessingFinishedEvent,
+        apply_segment_offset, derive_cleaned_mic_path, generate_fallback_title,
+        looks_like_timestamp_title_suffix, normalize_generated_title,
+        resolve_existing_clean_mic_path, resolve_mic_processing_input_path,
+        resolve_mic_processing_path, should_auto_title, MeetingProcessingFinishedEvent,
     };
     use crate::inference::Speaker;
     use crate::inference::TranscriptSegment;
@@ -1307,5 +1583,42 @@ mod tests {
         assert!(obj.contains_key("error_message"));
         assert!(!obj.contains_key("meetingId"));
         assert!(!obj.contains_key("errorMessage"));
+    }
+
+    #[test]
+    fn auto_title_detection_only_matches_placeholder_titles() {
+        assert!(should_auto_title("Meeting 2026-02-18 14:10"));
+        assert!(should_auto_title("Meeting 2/18/2026, 2:10:00 PM"));
+        assert!(!should_auto_title("Meeting with Product Team"));
+        assert!(!should_auto_title("Budget Review Q1"));
+    }
+
+    #[test]
+    fn timestamp_suffix_detection_works_for_date_time_like_values() {
+        assert!(looks_like_timestamp_title_suffix("2026-02-18 14:10"));
+        assert!(looks_like_timestamp_title_suffix("2/18/2026, 2:10 PM"));
+        assert!(!looks_like_timestamp_title_suffix("with Product Team"));
+        assert!(!looks_like_timestamp_title_suffix("kickoff 1:1 sync"));
+    }
+
+    #[test]
+    fn fallback_title_generator_extracts_clean_phrase() {
+        let transcript_excerpt =
+            "um okay today we are reviewing q3 hiring budget and launch timeline. next updates later";
+        let title = generate_fallback_title(transcript_excerpt).unwrap();
+        assert!(title.contains("Q3 Hiring Budget"));
+        assert!(title.split_whitespace().count() >= 4);
+    }
+
+    #[test]
+    fn generated_title_normalization_trims_and_bounds_length() {
+        let title = normalize_generated_title(
+            "  \"** Weekly planning sync for roadmap and release readiness with operations and finance **\"  ",
+        )
+        .unwrap();
+        assert!(
+            title.starts_with("Weekly planning sync") || title.starts_with("Weekly Planning Sync")
+        );
+        assert!(title.len() <= 80);
     }
 }
