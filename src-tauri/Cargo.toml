@@ -1,6 +1,6 @@
 [package]
 name = "meeting-scribe"
-version = "0.2.4"
+version = "0.2.5"
 description = "Local-first meeting transcription and RAG"
 authors = ["Meeting Scribe"]
 edition = "2021"
